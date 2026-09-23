@@ -1,6 +1,4 @@
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::Deserialize;
@@ -11,7 +9,6 @@ use crate::diagnose;
 use crate::models::{CodexCreditsState, CreditsSection, UsageData, UsageSection};
 
 const CODEX_USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Deserialize)]
 struct CodexAuthFile {
@@ -182,7 +179,7 @@ fn codex_usage_from_response_at(
 
     data.credits = credits.and_then(|credits| {
         let state_path = path.map(|path| {
-            app_settings::app_data_directory().join(credit_state_file_name(path, account_id))
+            app_settings::cache_directory().join(credit_state_file_name(path, account_id))
         });
         let previous = match &state_path {
             Some(path) => std::fs::read(path)
@@ -345,98 +342,21 @@ fn read_codex_credentials_at(auth_path: &Path) -> Option<CodexTokenData> {
 }
 
 fn cli_refresh_codex_token(directory: &Path) {
-    let codex_path = resolve_windows_codex_path();
-    let is_cmd = codex_path.to_lowercase().ends_with(".cmd");
-    let is_ps1 = codex_path.to_lowercase().ends_with(".ps1");
+    let Some(codex) = super::cli::find_executable("codex") else {
+        diagnose::log("Codex token expired and the codex CLI was not found on PATH");
+        return;
+    };
     diagnose::log(format!(
-        "attempting Windows Codex token refresh via {codex_path}"
+        "attempting Codex token refresh via {}",
+        codex.display()
     ));
-
-    let args: &[&str] = &["exec", "."];
-    let mut command = if is_cmd {
-        let mut command = Command::new("cmd.exe");
-        command.arg("/c").arg(&codex_path).args(args);
-        command
-    } else if is_ps1 {
-        let mut command = Command::new("powershell.exe");
-        command
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(&codex_path)
-            .args(args);
-        command
-    } else {
-        let mut command = Command::new(&codex_path);
-        command.args(args);
-        command
-    };
-    command
-        .env("CODEX_HOME", directory)
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            diagnose::log_error("unable to spawn Windows Codex token refresh", error);
-            return;
+    let mut command = super::cli::command(&codex, &["exec", "."]);
+    command.env("CODEX_HOME", directory);
+    match command.spawn() {
+        Ok(mut child) => {
+            super::cli::wait_for(&mut child, Duration::from_secs(30));
         }
-    };
-    wait_for_refresh(&mut child);
-}
-
-fn resolve_windows_codex_path() -> String {
-    for name in ["codex.cmd", "codex.ps1", "codex.exe", "codex"] {
-        if Command::new(name)
-            .arg("--version")
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .is_ok()
-        {
-            return name.to_string();
-        }
-    }
-
-    for name in ["codex.cmd", "codex.ps1", "codex.exe", "codex"] {
-        if let Ok(output) = Command::new("where.exe")
-            .arg(name)
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-        {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(path) = stdout
-                    .lines()
-                    .next()
-                    .map(str::trim)
-                    .filter(|path| !path.is_empty())
-                {
-                    return path.to_string();
-                }
-            }
-        }
-    }
-    "codex.cmd".to_string()
-}
-
-fn wait_for_refresh(child: &mut std::process::Child) {
-    let start = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if start.elapsed() > Duration::from_secs(30) => {
-                let _ = child.kill();
-                break;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(500)),
-            Err(_) => break,
-        }
+        Err(error) => diagnose::log_error("unable to spawn Codex token refresh", error),
     }
 }
 
@@ -446,8 +366,8 @@ mod tests {
 
     #[test]
     fn credit_history_is_scoped_to_source_and_account() {
-        let first = Path::new("C:\\account-tests\\work\\auth.json");
-        let second = Path::new("C:\\account-tests\\personal\\auth.json");
+        let first = Path::new("/tmp/account-tests/work/auth.json");
+        let second = Path::new("/tmp/account-tests/personal/auth.json");
         assert_ne!(
             credit_state_file_name(first, Some("work")),
             credit_state_file_name(second, Some("work"))

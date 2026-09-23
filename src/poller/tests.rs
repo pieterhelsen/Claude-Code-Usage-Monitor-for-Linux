@@ -17,26 +17,6 @@ fn usage_with_session_percent(percentage: f64) -> UsageData {
 }
 
 #[test]
-fn antigravity_keeps_reported_idle_windows_without_resets() {
-    let quota = serde_json::from_str(r#"{"remainingFraction":1}"#).unwrap();
-    let section = super::antigravity::antigravity_section_from_quota(quota).unwrap();
-    assert!(section.available);
-    assert_eq!(section.percentage, 0.0);
-    assert!(section.resets_at.is_none());
-    let summary = serde_json::from_str(
-        r#"{
-        "groups":[{"displayName":"Gemini","buckets":[{"window":"5h","remainingFraction":1}]}]
-    }"#,
-    )
-    .unwrap();
-    let data = super::antigravity::antigravity_usage_from_summary(summary).unwrap();
-    assert!(data.session.available);
-    assert_eq!(data.session.percentage, 0.0);
-    assert!(data.session.resets_at.is_none());
-    assert!(!data.weekly.available);
-}
-
-#[test]
 fn idle_window_presence_survives_cached_poll_failures() {
     let previous = AppUsageData::from_iter([(ProviderId::Claude, usage_with_session_percent(0.0))]);
     let cached: AppUsageData =
@@ -125,7 +105,6 @@ fn claude_failure_does_not_block_codex_when_both_are_enabled() {
         |provider| match provider {
             ProviderId::Claude => Err(PollError::AuthRequired),
             ProviderId::Codex => Ok(usage_with_session_percent(42.0)),
-            ProviderId::Antigravity => unreachable!("antigravity is disabled"),
             ProviderId::OpenCode => unreachable!("OpenCode is disabled"),
             ProviderId::Cursor => unreachable!("Cursor is disabled"),
             ProviderId::Grok => unreachable!("Grok is disabled"),
@@ -147,7 +126,6 @@ fn codex_failure_does_not_block_claude_when_both_are_enabled() {
         |provider| match provider {
             ProviderId::Claude => Ok(usage_with_session_percent(64.0)),
             ProviderId::Codex => Err(PollError::RequestFailed),
-            ProviderId::Antigravity => unreachable!("antigravity is disabled"),
             ProviderId::OpenCode => unreachable!("OpenCode is disabled"),
             ProviderId::Cursor => unreachable!("Cursor is disabled"),
             ProviderId::Grok => unreachable!("Grok is disabled"),
@@ -169,7 +147,6 @@ fn returns_first_error_when_no_enabled_provider_succeeds() {
         |provider| match provider {
             ProviderId::Claude => Err(PollError::AuthRequired),
             ProviderId::Codex => Err(PollError::RequestFailed),
-            ProviderId::Antigravity => Err(PollError::NoCredentials),
             ProviderId::OpenCode => Err(PollError::NoCredentials),
             ProviderId::Cursor => Err(PollError::NoCredentials),
             ProviderId::Grok => Err(PollError::NoCredentials),
@@ -282,35 +259,12 @@ fn concurrent_polling_reports_the_first_provider_error_deterministically() {
 }
 
 #[test]
-fn antigravity_failure_does_not_block_codex_when_both_are_enabled() {
-    let data = poll_with(
-        ProviderSet::from_enabled([ProviderId::Codex, ProviderId::Antigravity]),
-        |provider| match provider {
-            ProviderId::Claude => unreachable!("claude code is disabled"),
-            ProviderId::Codex => Ok(usage_with_session_percent(42.0)),
-            ProviderId::Antigravity => Err(PollError::NoCredentials),
-            ProviderId::OpenCode => unreachable!("OpenCode is disabled"),
-            ProviderId::Cursor => unreachable!("Cursor is disabled"),
-            ProviderId::Grok => unreachable!("Grok is disabled"),
-        },
-    )
-    .expect("codex data should keep the poll successful");
-
-    assert!(data.get(ProviderId::Antigravity).is_none());
-    assert_eq!(
-        data.get(ProviderId::Codex).unwrap().session.percentage,
-        42.0
-    );
-}
-
-#[test]
 fn opencode_failure_does_not_block_codex_when_both_are_enabled() {
     let data = poll_with(
         ProviderSet::from_enabled([ProviderId::Codex, ProviderId::OpenCode]),
         |provider| match provider {
             ProviderId::Claude => unreachable!("Claude Code is disabled"),
             ProviderId::Codex => Ok(usage_with_session_percent(42.0)),
-            ProviderId::Antigravity => unreachable!("Antigravity is disabled"),
             ProviderId::OpenCode => Err(PollError::NoCredentials),
             ProviderId::Cursor => unreachable!("Cursor is disabled"),
             ProviderId::Grok => unreachable!("Grok is disabled"),
@@ -342,62 +296,6 @@ fn cursor_failure_does_not_block_codex_when_both_are_enabled() {
         data.get(ProviderId::Codex).unwrap().session.percentage,
         42.0
     );
-}
-
-#[test]
-fn antigravity_summary_prefers_gemini_group() {
-    let response: antigravity::AntigravityQuotaSummaryResponse = serde_json::from_str(
-        r#"{
-                "groups": [
-                    {
-                        "displayName": "Claude and GPT models",
-                        "buckets": [
-                            {
-                                "bucketId": "3p-weekly",
-                                "window": "weekly",
-                                "resetTime": "2026-06-20T18:32:02Z",
-                                "remainingFraction": 1
-                            },
-                            {
-                                "bucketId": "3p-5h",
-                                "window": "5h",
-                                "resetTime": "2026-06-13T23:32:02Z",
-                                "remainingFraction": 1
-                            }
-                        ]
-                    },
-                    {
-                        "displayName": "Gemini Models",
-                        "description": "Models within this group: Gemini Flash, Gemini Pro",
-                        "buckets": [
-                            {
-                                "bucketId": "gemini-weekly",
-                                "displayName": "Weekly Limit",
-                                "window": "weekly",
-                                "resetTime": "2026-06-20T17:08:54Z",
-                                "remainingFraction": 0.99304295
-                            },
-                            {
-                                "bucketId": "gemini-5h",
-                                "displayName": "Five Hour Limit",
-                                "window": "5h",
-                                "resetTime": "2026-06-13T22:08:54Z",
-                                "remainingFraction": 0.9582575
-                            }
-                        ]
-                    }
-                ]
-            }"#,
-    )
-    .expect("summary response should deserialize");
-
-    let usage = antigravity::antigravity_usage_from_summary(response)
-        .expect("Gemini quota should be selected");
-
-    assert!((usage.weekly.percentage - 0.695705).abs() < 0.000001);
-    assert!((usage.session.percentage - 4.17425).abs() < 0.000001);
-    assert!(usage.weekly.resets_at.is_some());
-    assert!(usage.session.resets_at.is_some());
 }
 
 #[test]

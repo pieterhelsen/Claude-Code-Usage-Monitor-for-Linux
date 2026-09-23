@@ -10,7 +10,7 @@ use crate::diagnose;
 use crate::models::{UsageData, UsageSection};
 
 const GO_STATUS_URL: &str = "https://opencode.ai/console/api/go/status";
-const DASHBOARD_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+const DASHBOARD_USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
      (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 const WORKSPACE_ID_ENV: &str = "OPENCODE_GO_WORKSPACE_ID";
 const AUTH_COOKIE_ENV: &str = "OPENCODE_GO_AUTH_COOKIE";
@@ -280,24 +280,11 @@ fn dashboard_config_paths() -> Vec<PathBuf> {
     if let Some(path) = non_empty_environment(CONFIG_FILE_ENV).map(PathBuf::from) {
         paths.push(path);
     }
-    if let Some(app_data) = non_empty_environment("APPDATA").map(PathBuf::from) {
-        paths.push(app_data.join("opencode-go").join("config.json"));
-    }
-    if let Some(config_home) = non_empty_environment("XDG_CONFIG_HOME").map(PathBuf::from) {
-        paths.push(config_home.join("opencode-bar").join("opencode-go.json"));
-        paths.push(config_home.join("opencode-quota").join("opencode-go.json"));
-    }
-    if let Some(home) = dirs::home_dir() {
-        paths.push(
-            home.join(".config")
-                .join("opencode-bar")
-                .join("opencode-go.json"),
-        );
-        paths.push(
-            home.join(".config")
-                .join("opencode-quota")
-                .join("opencode-go.json"),
-        );
+    // dirs::config_dir honours XDG_CONFIG_HOME and falls back to ~/.config.
+    if let Some(config) = dirs::config_dir() {
+        paths.push(config.join("opencode-go").join("config.json"));
+        paths.push(config.join("opencode-bar").join("opencode-go.json"));
+        paths.push(config.join("opencode-quota").join("opencode-go.json"));
     }
     paths
 }

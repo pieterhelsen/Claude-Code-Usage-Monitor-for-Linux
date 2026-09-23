@@ -1,7 +1,5 @@
 use std::io::Read;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,7 +19,6 @@ const GROK_CLIENT_MODE: &str = "cli";
 const DEFAULT_GROK_CLIENT_VERSION: &str = "1.0.0";
 const GROK_HOME_ENV: &str = "GROK_HOME";
 const GROK_CLIENT_VERSION_ENV: &str = "GROK_CLIENT_VERSION";
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// One entry of `auth.json`, keyed by `"{issuer}::{client_id}"` or the
 /// legacy `"https://accounts.x.ai/sign-in"` scope.
@@ -392,14 +389,14 @@ fn cached_cli_detection(
 }
 
 fn cli_grok_version() -> Option<String> {
-    let version = read_cli_version(&resolve_windows_grok_path(), Duration::from_secs(5))?;
+    let version = read_cli_version(&resolve_grok_path()?, Duration::from_secs(5))?;
     diagnose::log(format!("Grok CLI reports version {version}"));
     Some(version)
 }
 
-fn read_cli_version(path: &str, timeout: Duration) -> Option<String> {
+fn read_cli_version(path: &Path, timeout: Duration) -> Option<String> {
     let start = std::time::Instant::now();
-    let mut child = grok_command(path, &["version"])
+    let mut child = super::cli::command(path, &["version"])
         .stdout(std::process::Stdio::piped())
         .spawn()
         .ok()?;
@@ -440,79 +437,30 @@ fn first_version(text: &str) -> Option<String> {
 /// `grok models` needs a valid token but no model call, so it refreshes the
 /// stored session without spending any of the allowance.
 fn cli_refresh_grok_token() {
-    let grok_path = resolve_windows_grok_path();
+    let Some(grok) = resolve_grok_path() else {
+        diagnose::log("Grok token rejected and the grok CLI was not found on PATH");
+        return;
+    };
     diagnose::log(format!(
-        "attempting Windows Grok token refresh via {grok_path}"
+        "attempting Grok token refresh via {}",
+        grok.display()
     ));
-
-    let mut child = match grok_command(&grok_path, &["models"]).spawn() {
+    let mut child = match super::cli::command(&grok, &["models"]).spawn() {
         Ok(child) => child,
         Err(error) => {
-            diagnose::log_error("unable to spawn Windows Grok token refresh", error);
+            diagnose::log_error("unable to spawn Grok token refresh", error);
             return;
         }
     };
     wait_for_command(&mut child, Duration::from_secs(30));
 }
 
-fn grok_command(grok_path: &str, args: &[&str]) -> Command {
-    let lowercase = grok_path.to_lowercase();
-    let mut command = if lowercase.ends_with(".cmd") || lowercase.ends_with(".bat") {
-        let mut command = Command::new("cmd.exe");
-        command.arg("/d").arg("/c").arg(grok_path).args(args);
-        command
-    } else if lowercase.ends_with(".ps1") {
-        let mut command = Command::new("powershell.exe");
-        command
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(grok_path)
-            .args(args);
-        command
-    } else {
-        let mut command = Command::new(grok_path);
-        command.args(args);
-        command
-    };
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
-    command
-}
-
-fn resolve_windows_grok_path() -> String {
+fn resolve_grok_path() -> Option<PathBuf> {
     static PATH: OnceLock<String> = OnceLock::new();
     cached_cli_detection(&PATH, || {
-        // The official installer drops a real executable in ~/.grok/bin;
-        // prefer it over an npm shim that would cost an extra cmd.exe hop.
-        for name in ["grok.exe", "grok.cmd", "grok.ps1", "grok"] {
-            if let Ok(output) = Command::new("where.exe")
-                .arg(name)
-                .creation_flags(CREATE_NO_WINDOW)
-                .output()
-            {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    if let Some(path) = stdout
-                        .lines()
-                        .next()
-                        .map(str::trim)
-                        .filter(|path| !path.is_empty())
-                    {
-                        return Some(path.to_string());
-                    }
-                }
-            }
-        }
-        None
+        super::cli::find_executable("grok").map(|path| path.to_string_lossy().into_owned())
     })
-    .unwrap_or_else(|| "grok.cmd".to_string())
+    .map(PathBuf::from)
 }
 
 fn wait_for_command(child: &mut std::process::Child, timeout: Duration) -> bool {
@@ -850,47 +798,29 @@ mod tests {
     }
 
     #[test]
-    fn version_detection_runs_windows_shims_with_spaces_in_the_path() {
-        let root = crate::app_settings::app_data_directory().join("Grok CLI shims");
-        std::fs::create_dir_all(&root).unwrap();
-        for (extension, script) in [
-            (
-                "cmd",
-                "@echo off\r\nif not \"%~1\"==\"version\" exit /b 1\r\necho grok 1.2.3\r\n",
-            ),
-            (
-                "ps1",
-                "if ($args[0] -ne 'version') { exit 1 }; Write-Output 'grok 1.2.3'",
-            ),
-        ] {
-            let path = root.join(format!("grok.{extension}"));
-            std::fs::write(&path, script).unwrap();
-            assert_eq!(
-                read_cli_version(path.to_str().unwrap(), Duration::from_secs(5)).as_deref(),
-                Some("1.2.3"),
-                "{}",
-                path.display()
-            );
-        }
+    fn version_detection_runs_scripts_with_spaces_in_the_path() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("Grok CLI");
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("grok");
+        super::super::cli::write_script(&path, "[ \"$1\" = version ] || exit 1\necho grok 1.2.3");
+        assert_eq!(
+            read_cli_version(&path, Duration::from_secs(5)).as_deref(),
+            Some("1.2.3")
+        );
     }
 
     #[test]
     fn version_detection_rejects_failed_commands_and_times_out() {
-        let root = crate::app_settings::app_data_directory();
-        let failed = root.join("failed-version.cmd");
-        std::fs::write(&failed, "@echo grok 1.2.3\r\n@exit /b 1\r\n").unwrap();
-        assert_eq!(
-            read_cli_version(failed.to_str().unwrap(), Duration::from_secs(5)),
-            None
-        );
+        let root = tempfile::tempdir().unwrap();
+        let failed = root.path().join("failed-version");
+        super::super::cli::write_script(&failed, "echo grok 1.2.3\nexit 1");
+        assert_eq!(read_cli_version(&failed, Duration::from_secs(5)), None);
 
-        let slow = root.join("slow-version.ps1");
-        std::fs::write(&slow, "Start-Sleep -Seconds 30; Write-Output 'grok 1.2.3'").unwrap();
+        let slow = root.path().join("slow-version");
+        super::super::cli::write_script(&slow, "sleep 30\necho grok 1.2.3");
         let start = std::time::Instant::now();
-        assert_eq!(
-            read_cli_version(slow.to_str().unwrap(), Duration::from_millis(200)),
-            None
-        );
+        assert_eq!(read_cli_version(&slow, Duration::from_millis(200)), None);
         assert!(start.elapsed() < Duration::from_secs(5));
     }
 }

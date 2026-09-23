@@ -36,22 +36,17 @@ impl PollError {
         ) && !self.is_auth()
     }
 
-    pub fn message(self, language: crate::localization::LanguageId) -> String {
+    /// English description shown in the panel and the diagnostic log.
+    pub fn message(self) -> String {
         match self {
-            Self::AuthRequired => language.text("Login rejected; sign in again").into(),
-            Self::TokenExpired => language
-                .text("Login expired and could not be renewed; sign in again")
-                .into(),
-            Self::NoCredentials => language.text("No usable login found; sign in first").into(),
-            Self::RequestFailed => language
-                .text("Usage request failed; retrying at the next refresh")
-                .into(),
-            Self::NetworkError => language
-                .text("Service unreachable; retrying at the next refresh")
-                .into(),
-            Self::UnexpectedResponse => language
-                .text("Unexpected usage response; retrying at the next refresh")
-                .into(),
+            Self::AuthRequired => "Login rejected; sign in again".into(),
+            Self::TokenExpired => "Login expired and could not be renewed; sign in again".into(),
+            Self::NoCredentials => "No usable login found; sign in first".into(),
+            Self::RequestFailed => "Usage request failed; retrying at the next refresh".into(),
+            Self::NetworkError => "Service unreachable; retrying at the next refresh".into(),
+            Self::UnexpectedResponse => {
+                "Unexpected usage response; retrying at the next refresh".into()
+            }
             Self::HttpStatus(code) => {
                 let reason = ureq::http::StatusCode::from_u16(code)
                     .ok()
@@ -62,8 +57,28 @@ impl PollError {
                 } else {
                     "Retrying at the next refresh"
                 };
-                format!("HTTP {code}: {reason}. {}", language.text(action))
+                format!("HTTP {code}: {reason}. {action}")
             }
+        }
+    }
+
+    /// Stable machine-readable identifier used in the D-Bus snapshot.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::AuthRequired => "auth_required",
+            Self::NoCredentials => "no_credentials",
+            Self::TokenExpired => "token_expired",
+            Self::RequestFailed => "request_failed",
+            Self::NetworkError => "network_error",
+            Self::UnexpectedResponse => "unexpected_response",
+            Self::HttpStatus(_) => "http_status",
+        }
+    }
+
+    pub fn http_status(self) -> Option<u16> {
+        match self {
+            Self::HttpStatus(code) => Some(code),
+            _ => None,
         }
     }
 }
@@ -123,8 +138,14 @@ pub fn merge_poll_progress(
     let update = carry_forward_failures(update, previous, providers);
     let mut merged = previous.clone();
     for (provider, usage) in update.iter() {
+        if !usage.stale {
+            merged.errors.remove(&provider);
+        }
         merged.insert(provider, usage.clone());
     }
+    merged
+        .errors
+        .extend(update.errors.iter().map(|(p, e)| (*p, *e)));
     for account in update.accounts {
         merged
             .accounts
@@ -230,9 +251,16 @@ where
         receiver
             .into_iter()
             .map(|(provider, result)| {
-                if let Ok(usage) = &result {
-                    on_progress(AppUsageData::from_iter([(provider, usage.clone())]));
+                let mut update = AppUsageData::default();
+                match &result {
+                    Ok(usage) => {
+                        update.insert(provider, usage.clone());
+                    }
+                    Err(error) => {
+                        update.errors.insert(provider, *error);
+                    }
                 }
+                on_progress(update);
                 (provider, result)
             })
             .collect::<Vec<_>>()
@@ -253,6 +281,7 @@ fn merge_poll_results(
                 data.insert(provider, usage);
             }
             Err(error) => {
+                data.errors.insert(provider, error);
                 if enabled_providers.len() > 1 {
                     diagnose::log(format!(
                         "{} usage poll failed: {error:?}",
@@ -275,9 +304,8 @@ fn merge_poll_results(
 }
 
 mod accounts;
-mod antigravity;
 mod claude;
-mod claude_desktop;
+pub(crate) mod cli;
 mod codex;
 mod cursor;
 mod grok;
@@ -289,7 +317,7 @@ struct ProviderPoller {
     credential_watch: fn(bool) -> CredentialWatchSnapshot,
 }
 
-const PROVIDER_POLLERS: [ProviderPoller; 6] = [
+const PROVIDER_POLLERS: [ProviderPoller; 5] = [
     ProviderPoller {
         id: ProviderId::Claude,
         poll: claude::poll_claude_code,
@@ -299,11 +327,6 @@ const PROVIDER_POLLERS: [ProviderPoller; 6] = [
         id: ProviderId::Codex,
         poll: codex::poll_codex,
         credential_watch: codex_credential_watch_snapshot,
-    },
-    ProviderPoller {
-        id: ProviderId::Antigravity,
-        poll: antigravity::poll_antigravity,
-        credential_watch: antigravity_credential_watch_snapshot,
     },
     ProviderPoller {
         id: ProviderId::OpenCode,
@@ -346,17 +369,13 @@ fn codex_credential_watch_snapshot(_all_sources: bool) -> CredentialWatchSnapsho
     codex::credential_watch_snapshot()
 }
 
-fn antigravity_credential_watch_snapshot(_all_sources: bool) -> CredentialWatchSnapshot {
-    vec![antigravity::antigravity_credential_watch_signature()]
-}
-
 fn build_agent() -> Result<ureq::Agent, PollError> {
     static AGENT: OnceLock<Result<ureq::Agent, PollError>> = OnceLock::new();
     // Agent clones share their connection pool, cookies, and TLS configuration.
     AGENT
         .get_or_init(|| {
             let tls = ureq::tls::TlsConfig::builder()
-                .provider(ureq::tls::TlsProvider::NativeTls)
+                .provider(ureq::tls::TlsProvider::Rustls)
                 .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                 .build();
             Ok(ureq::Agent::config_builder()
@@ -512,31 +531,6 @@ fn days_in_month(year: u64, month: u64) -> u64 {
 
 fn is_leap(y: u64) -> bool {
     (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
-}
-
-/// Calculate how long until the display text would change
-pub fn time_until_display_change(resets_at: Option<SystemTime>) -> Option<Duration> {
-    let reset = resets_at?;
-    let remaining = reset.duration_since(SystemTime::now()).ok()?;
-    Some(time_until_display_change_from_secs(remaining.as_secs()))
-}
-
-fn time_until_display_change_from_secs(total_secs: u64) -> Duration {
-    let total_mins = total_secs / 60;
-    let total_hours = total_secs / 3600;
-    let total_days = total_secs / 86400;
-
-    let current_bucket_start = if total_days >= 1 {
-        total_days * 86400
-    } else if total_hours >= 1 {
-        total_hours * 3600
-    } else if total_mins >= 1 {
-        total_mins * 60
-    } else {
-        total_secs
-    };
-
-    Duration::from_secs(total_secs.saturating_sub(current_bucket_start) + 1)
 }
 
 /// Returns true if a reported usage window has reached its reset time.
