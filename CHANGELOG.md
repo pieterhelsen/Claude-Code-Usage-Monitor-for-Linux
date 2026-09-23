@@ -1,10 +1,10 @@
 # Changelog
 
-This changelog covers the Linux edition. For the history of the Windows widget
-this project is forked from (up to 2.14.55), see the
-[upstream changelog](https://github.com/CodeZeno/Claude-Code-Usage-Monitor/blob/main/CHANGELOG.md).
+This changelog covers the Linux edition, which restarts its version numbers at
+1.0.0. It is forked from the Windows widget at version 2.14.55; for that history,
+see the [upstream changelog](https://github.com/CodeZeno/Claude-Code-Usage-Monitor/blob/main/CHANGELOG.md).
 
-## 3.0.0
+## 1.0.0
 
 The first Linux release.
 
@@ -21,6 +21,8 @@ The first Linux release.
   and `--uninstall` modes.
 - Provider errors for Cursor, OpenCode Go and Grok are now reported per provider
   instead of only in the log.
+- A new login for any configured Claude Code or Codex account profile is picked
+  up within 30 seconds, not only for the default login.
 
 ### Changed
 
@@ -30,6 +32,26 @@ The first Linux release.
   on `PATH` or in common per-user install locations.
 - Cursor's login database is read with a bundled SQLite; HTTPS uses rustls with
   the system certificate store.
+- OpenCode Go shows its weekly and monthly windows separately instead of
+  replacing the weekly figure with the monthly one.
+- A poll where every account failed is reported as failed, so `--json --local`
+  exits non-zero.
+- waybar's `percentage` matches the text when showing what is left.
+- The top-bar label dims its last reading when the daemon stops or cannot be
+  reached, instead of looking current.
+- The preferences window shows the provider settings the daemon actually kept.
+
+### Security
+
+- Expired logins are renewed by running the provider CLI in an empty private
+  directory. Claude Code runs with no tools, settings files, MCP servers or saved
+  session, on Haiku. Codex runs read-only and ephemeral. Neither sees your home
+  directory or a project as its workspace.
+- Settings, caches and the diagnostic log are created in directories owned by
+  you and closed to other users. Temporary files are created exclusively, so a
+  planted file or symlink cannot redirect a write.
+- Installing into a path with spaces or shell-special characters produces valid
+  D-Bus and systemd service files.
 
 ### Removed
 

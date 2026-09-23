@@ -43,7 +43,7 @@ Other options:
 
 ```sh
 # a specific version, or without the GNOME extension
-curl -fsSL …/install.sh | sh -s -- --version v3.0.0
+curl -fsSL …/install.sh | sh -s -- --version v1.0.0
 curl -fsSL …/install.sh | sh -s -- --no-extension
 
 # from a checkout (needs Rust from https://rustup.rs)
@@ -96,7 +96,9 @@ reads the login its own CLI or app already stored on this computer.
 
 When a Claude Code, Codex or Grok login expires, the daemon asks that CLI to
 renew it by running it once in the background. The CLI must be on your `PATH`
-or in `~/.local/bin`.
+or in `~/.local/bin`. For Claude Code and Codex this sends one tiny prompt. It
+runs in an empty private directory with tools, hooks and saved sessions turned
+off where the CLI allows it. Codex still runs your user-level hooks.
 
 For OpenCode Go, the config file looks like this:
 
