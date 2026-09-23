@@ -132,13 +132,21 @@ fn base64_url_decode(input: &str) -> Option<Vec<u8>> {
     (buffer & padding_mask == 0).then_some(output)
 }
 
+/// Cursor keeps its login in VS Code's state database. The Flatpak build
+/// stores it under the sandbox's own config directory.
 fn cursor_state_db_path() -> Option<PathBuf> {
-    let path = dirs::config_dir()?
-        .join("Cursor")
-        .join("User")
-        .join("globalStorage")
-        .join("state.vscdb");
-    path.is_file().then_some(path)
+    let relative = Path::new("Cursor/User/globalStorage/state.vscdb");
+    let mut candidates = Vec::new();
+    if let Some(config) = dirs::config_dir() {
+        candidates.push(config.join(relative));
+    }
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(
+            home.join(".var/app/com.cursor.Cursor/config")
+                .join(relative),
+        );
+    }
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn read_cursor_access_token_from_state_db() -> Option<String> {
@@ -178,13 +186,21 @@ fn query_cursor_access_token_from_copy(path: &Path) -> Option<String> {
     }
 }
 
-fn query_cursor_access_token(path: &Path) -> Result<Option<String>, crate::winsqlite::Error> {
-    crate::winsqlite::query_optional_text(
+fn query_cursor_access_token(path: &Path) -> rusqlite::Result<Option<String>> {
+    use rusqlite::{Connection, OpenFlags, OptionalExtension};
+    let connection = Connection::open_with_flags(
         path,
-        "SELECT value FROM ItemTable WHERE key = ?1",
-        CURSOR_ACCESS_TOKEN_KEY,
-    )
-    .map(|token| token.filter(|token| !token.is_empty()))
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    connection.busy_timeout(std::time::Duration::from_secs(1))?;
+    connection
+        .query_row(
+            "SELECT value FROM ItemTable WHERE key = ?1",
+            [CURSOR_ACCESS_TOKEN_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map(|token| token.filter(|token| !token.is_empty()))
 }
 
 fn fetch_cursor_usage(cookie: &str) -> Result<UsageData, PollError> {
@@ -272,6 +288,30 @@ fn path_signature(kind: &str, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_the_access_token_from_a_state_database() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let connection = rusqlite::Connection::open(&path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);\
+                 INSERT INTO ItemTable VALUES ('cursorAuth/accessToken', 'test-token');",
+            )
+            .unwrap();
+        drop(connection);
+        assert_eq!(
+            query_cursor_access_token(&path).unwrap(),
+            Some("test-token".into())
+        );
+        let empty = directory.path().join("empty.vscdb");
+        rusqlite::Connection::open(&empty)
+            .unwrap()
+            .execute_batch("CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT);")
+            .unwrap();
+        assert_eq!(query_cursor_access_token(&empty).unwrap(), None);
+    }
 
     #[test]
     fn extracts_cursor_user_id_from_a_jwt() {

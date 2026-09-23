@@ -1,78 +1,104 @@
-# Claude Code Usage Monitor
+# Claude Code Usage Monitor for Linux
 
-![Windows](https://img.shields.io/badge/platform-Windows-blue)
+![Linux](https://img.shields.io/badge/platform-Linux-blue)
+![GNOME 46–50](https://img.shields.io/badge/GNOME_Shell-46–50-4a86cf)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A lightweight, open-source Windows taskbar widget for monitoring Claude Code usage limits and reset times. It can also display usage for Codex, Google Antigravity, OpenCode Go, Cursor, and Grok Build.
+See your Claude Code usage limits and reset times in the Linux top bar. It also
+shows Codex, Cursor, OpenCode Go and Grok Build usage.
 
-See the [user guide](USER_GUIDE.md) for theme customisation and everyday settings,
-or the [changelog](CHANGELOG.md) for version history and notable changes.
+This is a Linux port of [CodeZeno/Claude-Code-Usage-Monitor](https://github.com/CodeZeno/Claude-Code-Usage-Monitor),
+a Windows taskbar widget. The provider logic is the same; the Windows widget is
+replaced by a small background daemon and a native GNOME Shell extension.
 
-![Claude Code Usage Monitor running in the Windows taskbar](.github/animation.gif)
+![The top-bar label turns amber near a limit](.github/screenshot-panel.png)
+
+![The menu lists every usage window with its reset time](.github/screenshot-menu.png)
 
 ## Features
 
-- Displays current usage and time remaining until each limit resets
-- Counts usage up from zero or down from the full allowance, whichever you prefer
-- Supports Claude Code, Codex, Google Antigravity, OpenCode Go, Cursor, and Grok Build
-- Supports multiple accounts for Claude Code and Codex
-- Lives in the Windows taskbar with quick controls in the system tray
-- Supports multiple monitors and Windows startup
-- Includes configurable refresh intervals, providers, languages, and updates
-- Provides built-in themes and a visual Theme Studio for custom layouts
+- Shows the usage closest to its limit, for example `42% · 3h`, in the GNOME top bar
+- Turns amber and red near a limit, with an optional usage bar
+- Lists every window (5-hour, weekly, monthly, credits) with its reset time
+- Counts usage up from zero or down from the full allowance
+- Supports several Claude Code and Codex accounts
+- Works with waybar and scripts through JSON output and D-Bus
 - Collects no analytics or telemetry
 
-## Requirements
+## Install
 
-- Windows 10 or Windows 11
-- At least one supported provider installed and signed in
-
-Claude Code credentials can be detected from the CLI, Claude desktop app, or WSL. Other providers are optional and can be enabled independently from the dashboard.
-
-## Installation
-
-Install the latest release with WinGet:
-
-```powershell
-winget install CodeZeno.ClaudeCodeUsageMonitor
+```sh
+curl -fsSL https://raw.githubusercontent.com/pieterhelsen/Claude-Code-Usage-Monitor-for-Linux/main/packaging/install.sh | sh
 ```
 
-Alternatively, download `claude-code-usage-monitor.exe` from [GitHub Releases](https://github.com/CodeZeno/Claude-Code-Usage-Monitor/releases).
+The script installs everything into your home directory; it never needs root.
+It downloads the latest release and checks its SHA-256 checksum. It then
+installs the daemon to `~/.local/bin` and registers it with D-Bus and
+systemd. On GNOME it also installs and enables the extension.
 
-See [updater verification](docs/updater.md) for the portable updater's integrity checks and trust boundary.
+On GNOME with Wayland, **log out and back in** afterwards: GNOME only loads new
+extensions at login.
 
-## Usage
+Other options:
 
-Start the monitor:
+```sh
+# a specific version, or without the GNOME extension
+curl -fsSL …/install.sh | sh -s -- --version v3.0.0
+curl -fsSL …/install.sh | sh -s -- --no-extension
 
-```powershell
-claude-code-usage-monitor
+# from a checkout (needs Rust from https://rustup.rs)
+git clone https://github.com/pieterhelsen/Claude-Code-Usage-Monitor-for-Linux
+cd Claude-Code-Usage-Monitor-for-Linux && sh packaging/install.sh --from-source
+
+# remove it again (--purge also deletes settings and caches)
+sh packaging/install.sh --uninstall --purge
 ```
 
-Open the settings dashboard directly:
+Release builds run on x86_64 and aarch64 with glibc 2.35 or newer, which covers
+Ubuntu 22.04, Debian 12, Fedora 36 and later.
 
-```powershell
-claude-code-usage-monitor --dashboard
+## Desktop support
+
+The daemon works on any Linux desktop. Only the panel front end differs.
+
+| Desktop | Distributions | Status |
+| --- | --- | --- |
+| GNOME Shell 46–50 | Ubuntu 24.04+, Fedora 40+, Debian 13 | Top-bar extension, included |
+| waybar (sway, Hyprland) | Arch, NixOS, Fedora spins | Custom module, see below |
+| KDE Plasma, XFCE, Cinnamon, MATE | Kubuntu, Mint, openSUSE | Planned: tray icon and plasmoid |
+
+### waybar
+
+```jsonc
+"custom/claude": {
+    "exec": "claude-code-usage-monitor --waybar",
+    "return-type": "json",
+    "interval": 60,
+    "on-click": "claude-code-usage-monitor --refresh"
+}
 ```
 
-Use the dashboard to select providers, change the refresh interval, choose a display, enable startup, or customize the widget. **Settings > Display > Usage direction** switches the default theme and other themes that support this setting between showing what has been used and what is left, with Used as the default. Selecting Remaining makes a fresh limit read 100% and drain as you work.
-
-Theme authors can opt in with `.display` bindings, including `{claude.session.display:usage_line}` and `{claude.session.display:usage_badge}`. Existing `.percentage`, `.remaining`, and unsuffixed usage summaries keep their meaning; warning thresholds should continue to use `.percentage`.
-
-In the default theme, left-click a provider tray icon to show or hide the widget and right-click it to open the menu.
+The module reads from the daemon, so waybar never triggers extra requests to
+the providers. The CSS classes are `ok`, `warn`, `critical`, `stale` and `error`.
 
 ## Provider setup
 
-| Provider | Setup |
-| --- | --- |
-| Claude Code | Sign in with the Claude Code CLI or desktop app. Windows and WSL credentials are detected automatically. |
-| Codex | Install and sign in to the Codex CLI, then enable Codex in **Providers**. |
-| Google Antigravity | Sign in to Antigravity, then enable it in **Providers**. |
-| OpenCode Go | Connect an OpenCode Go account, configure the credentials described below, then enable OpenCode in **Providers**. |
-| Cursor | Sign in to Cursor, then enable it in **Providers**. The local session is detected automatically. |
-| Grok Build | Run `grok login` in the Grok Build CLI, then enable Grok in **Providers**. The signed-in session is detected automatically. |
+Enable providers in the extension's **Settings** (Providers page). Each one
+reads the login its own CLI or app already stored on this computer.
 
-For OpenCode Go, set `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, or create `%APPDATA%\opencode-go\config.json`:
+| Provider | Credentials read from |
+| --- | --- |
+| Claude Code | `~/.claude/.credentials.json`, or `$CLAUDE_CONFIG_DIR/.credentials.json` |
+| Codex | `~/.codex/auth.json`, or `$CODEX_HOME/auth.json` |
+| Cursor | `~/.config/Cursor/User/globalStorage/state.vscdb`, or `CURSOR_SESSION_TOKEN` |
+| OpenCode Go | `OPENCODE_GO_WORKSPACE_ID` + `OPENCODE_GO_AUTH_COOKIE`, or `~/.config/opencode-go/config.json` |
+| Grok Build | `~/.grok/auth.json`, or `$GROK_HOME/auth.json` |
+
+When a Claude Code, Codex or Grok login expires, the daemon asks that CLI to
+renew it by running it once in the background. The CLI must be on your `PATH`
+or in `~/.local/bin`.
+
+For OpenCode Go, the config file looks like this:
 
 ```json
 {
@@ -81,52 +107,87 @@ For OpenCode Go, set `OPENCODE_GO_WORKSPACE_ID` and `OPENCODE_GO_AUTH_COOKIE`, o
 }
 ```
 
-The workspace ID is part of the OpenCode Go console URL: `https://opencode.ai/console/<workspaceId>/go`. Copy the `__Host-console_session` cookie from an authenticated `opencode.ai` browser session, including its name as shown above. A full Cookie header containing `__Host-console_session` or the legacy `auth` cookie is also accepted unchanged; no empty `auth=;` prefix is needed. Bare legacy `auth` cookie values remain supported. These formats work for both `authCookie` and `OPENCODE_GO_AUTH_COOKIE`. Set `OPENCODE_GO_CONFIG_FILE` to use a different config path. The monitor reads usage from the console JSON API using this workspace ID and cookie.
+The workspace ID is part of the console URL, `https://opencode.ai/console/<workspaceId>/go`.
+Copy the `__Host-console_session` cookie from a signed-in browser session. Protect
+this file like a browser cookie.
 
-For Cursor, `CURSOR_SESSION_TOKEN` can override the automatically detected local session.
+Google Antigravity and the Claude desktop app's own login are Windows-only in
+the original project and are not supported here.
 
-Grok Build usage comes from the session the CLI stores in `%USERPROFILE%\.grok\auth.json`, read through the same billing endpoint as the CLI's own `/usage` panel. Set `GROK_HOME` if the CLI keeps its home directory elsewhere. Only xAI sign-in entries are used; corporate identity-provider tokens and stored API keys are excluded. A bare `XAI_API_KEY` is not enough: the shared weekly allowance is only readable with a signed-in session. Grok reports one pool per billing period rather than a five-hour window, so the monitor shows it on the long-window row alongside the other providers, leaving the short-window row empty. On-demand spending replaces the pool on that row once any is used, as it already does for Claude Code and Codex.
+## Command line
+
+```text
+claude-code-usage-monitor --json       usage snapshot as JSON
+claude-code-usage-monitor --waybar     one line for a waybar custom module
+claude-code-usage-monitor --refresh    ask the daemon to poll now
+claude-code-usage-monitor --daemon     run the background service (normally automatic)
+```
+
+`--json` and `--waybar` read from the running daemon and start it if needed.
+Add `--local` to poll the providers directly instead.
+
+## How it works
+
+`claude-code-usage-monitor --daemon` polls the enabled providers every 15
+minutes by default. It also polls when a window resets and when a login file
+changes. It publishes the result on the session D-Bus:
+
+```text
+name       io.github.pieterhelsen.ClaudeCodeUsageMonitor
+object     /io/github/pieterhelsen/ClaudeCodeUsageMonitor
+interface  io.github.pieterhelsen.ClaudeCodeUsageMonitor1
+  GetUsage() → s           the usage snapshot as JSON (schema_version 1)
+  Refresh()
+  GetSettings() → s
+  SetSettings(s) → s
+  signal UsageChanged(s)
+```
+
+D-Bus starts the daemon on first use, through the systemd user unit
+`claude-code-usage-monitor.service`. The snapshot format is documented in
+`src/snapshot.rs`.
 
 ## Data and privacy
 
-The monitor reads local sign-in credentials for enabled providers and sends usage requests directly to their official services. It has no backend service, collects no telemetry, and does not upload credentials or project files.
-
-Credentials are read without modifying the provider files that contain them. When Grok Build rejects a stored token, the monitor asks the Grok CLI to refresh its own session rather than rewriting `auth.json` itself. OpenCode Go credentials saved in a JSON configuration file are plain text and should be protected like a browser session cookie.
+The daemon reads local sign-in files for the providers you enable. It sends
+usage requests directly to each provider's official service. There is no
+backend, no telemetry, and credentials and project files are never uploaded.
+Credential files are read, never rewritten.
 
 ## Troubleshooting
 
-Hover over the tray icon for the latest failure reason, or check the account
-status under **Settings > Providers > Accounts**. Missing credentials, expired
-or rejected logins, network failures, HTTP errors, and unexpected usage responses
-have distinct messages. Sign in again using the Claude desktop app or the CLI
-that owns the affected account, then refresh the monitor.
+- **The label shows `—`.** The daemon is not reachable. Check it with
+  `systemctl --user status claude-code-usage-monitor` and
+  `journalctl --user -u claude-code-usage-monitor`.
+- **The label shows `!`.** The provider returned an error. Open the menu to read it;
+  most often the CLI needs a fresh login.
+- **Nothing appears in the top bar after installing.** Log out and back in, then
+  check that the extension is enabled in the Extensions app.
+- **Extension errors.** Run `journalctl --user -f -o cat /usr/bin/gnome-shell`.
 
-Open **Diagnostics** in the dashboard and enable recording to inspect or copy
-polling errors. Logging is optional; enable it before reproducing the problem.
+For a detailed log, restart the daemon with diagnostics on:
 
-Run diagnostics with:
-
-```powershell
-claude-code-usage-monitor --diagnose
+```sh
+claude-code-usage-monitor --quit
+claude-code-usage-monitor --daemon --diagnose
 ```
 
-The diagnostic log is written to `%TEMP%\claude-code-usage-monitor.log`. Application settings are stored in `%APPDATA%\ClaudeCodeUsageMonitor\settings.json`.
+The log is written to `~/.cache/claude-code-usage-monitor/diagnose.log`.
 
-If the app unexpectedly closes because of a Rust panic, it automatically appends
-the panic message, source location, and thread details to the same log, even when
-diagnostic recording is off. Include this log when reporting the crash; copy it
-before starting a new `--diagnose` session, which clears the log.
+## Development
 
-## Build from source
-
-Install [Rust](https://www.rust-lang.org/tools/install) 1.95 or later, then run:
-
-```powershell
-cargo build --release
+```sh
+cargo test                                  # Rust tests (125)
+node --test gnome-extension/test/*.mjs      # extension formatting tests
+tools/extension-sandbox.sh                  # load the extension in a headless GNOME Shell
 ```
 
-The executable will be created at `target\release\claude-code-usage-monitor.exe`.
+`tools/extension-sandbox.sh` runs a separate, headless GNOME Shell with its own
+settings and screenshots the panel, the menu and the preferences. Your desktop
+session is not touched.
+
+See the [user guide](USER_GUIDE.md) for settings, and the [changelog](CHANGELOG.md).
 
 ## License
 
-Licensed under the [MIT License](LICENSE).
+MIT, like the original project. See [LICENSE](LICENSE).

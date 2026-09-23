@@ -1,0 +1,9 @@
+{
+  "uuid": "claude-code-usage-monitor@pieterhelsen.github.io",
+  "name": "Claude Code Usage Monitor",
+  "description": "Shows Claude Code, Codex, Cursor, OpenCode Go and Grok usage limits and reset times in the top bar.\n\nRequires the claude-code-usage-monitor daemon, installed by the project's install script.",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.claude-code-usage-monitor",
+  "url": "https://github.com/pieterhelsen/Claude-Code-Usage-Monitor-for-Linux",
+  "version-name": "3.0.0"
+}

@@ -191,7 +191,7 @@ where
             .inspect(|(_, target, signature, result)| {
                 let mut update = AppUsageData::default();
                 append_account_result(&mut update, target, signature, result);
-                if !update.is_empty() || !update.accounts.is_empty() {
+                if !update.is_empty() || !update.accounts.is_empty() || !update.errors.is_empty() {
                     on_progress(update);
                 }
             })
@@ -261,8 +261,15 @@ fn append_account_result(
             error: result.as_ref().err().copied(),
             selected: false,
         });
-    } else if let Ok(usage) = result {
-        data.insert(target.provider, usage.clone());
+    } else {
+        match result {
+            Ok(usage) => {
+                data.insert(target.provider, usage.clone());
+            }
+            Err(error) => {
+                data.errors.insert(target.provider, *error);
+            }
+        }
     }
 }
 
@@ -315,7 +322,7 @@ mod tests {
                     .map(|name| AccountProfile {
                         id: name.into(),
                         name: name.into(),
-                        config_dir: format!("C:\\account-tests\\{name}"),
+                        config_dir: format!("/tmp/account-tests/{name}"),
                         ..Default::default()
                     })
                     .collect(),
@@ -342,7 +349,7 @@ mod tests {
         let mut settings = settings();
         settings.claude.profiles.truncate(1);
         settings.claude.selected = "personal".into();
-        settings.codex.profiles[0].config_dir = "C:\\account-tests\\codex".into();
+        settings.codex.profiles[0].config_dir = "/tmp/account-tests/codex".into();
         let (release, wait) = std::sync::mpsc::channel();
         let wait = std::sync::Mutex::new(wait);
         let mut visible = AppUsageData::default();
@@ -698,7 +705,7 @@ mod tests {
             data.get(ProviderId::Claude).unwrap().session.percentage,
             20.0
         );
-        settings.claude.profiles[0].config_dir = "C:\\a-different-account".into();
+        settings.claude.profiles[0].config_dir = "/tmp/a-different-account".into();
         data.select_accounts(&settings);
         assert!(data.get(ProviderId::Claude).is_none());
         assert_eq!(data.accounts.len(), 1);
@@ -728,7 +735,7 @@ mod tests {
         for index in 2..6 {
             settings.claude.profiles.push(AccountProfile {
                 id: format!("profile_{index}"),
-                config_dir: format!("C:\\account-tests\\{index}"),
+                config_dir: format!("/tmp/account-tests/{index}"),
                 ..Default::default()
             });
         }

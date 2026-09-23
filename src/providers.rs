@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Stable identity shared by settings, polling, themes, and context menus.
+/// Stable identity shared by settings, polling, and the D-Bus snapshot.
 ///
 /// Adding a provider starts here: register its descriptor, implement its poller,
 /// and connect any provider-specific settings persistence that older versions
@@ -11,36 +11,32 @@ use serde::{Deserialize, Serialize};
 pub enum ProviderId {
     Claude = 0,
     Codex = 1,
-    Antigravity = 2,
-    OpenCode = 3,
-    Cursor = 4,
-    Grok = 5,
+    OpenCode = 2,
+    Cursor = 3,
+    Grok = 4,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProviderDescriptor {
     pub id: ProviderId,
-    /// Stable key used by theme expressions and context-menu documents.
+    /// Stable key used in the D-Bus snapshot and the GNOME extension.
     pub key: &'static str,
     /// Stable key used by the persisted usage cache.
     pub cache_key: &'static str,
-    /// English catalogue key resolved through the localization layer.
+    /// Human-readable provider name.
     pub display_name: &'static str,
-    /// English catalogue key for the provider setting description.
+    /// Short description shown next to the provider toggle.
     pub settings_description: &'static str,
-    /// Stable Win32 command id used by native provider menu items.
-    pub native_menu_command_id: u16,
     pub default_enabled: bool,
 }
 
-pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 6] = [
+pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 5] = [
     ProviderDescriptor {
         id: ProviderId::Claude,
         key: "claude",
         cache_key: "claude_code",
         display_name: "Claude Code",
         settings_description: "Collect usage from Anthropic",
-        native_menu_command_id: 60,
         default_enabled: true,
     },
     ProviderDescriptor {
@@ -49,16 +45,6 @@ pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 6] = [
         cache_key: "codex",
         display_name: "Codex",
         settings_description: "Collect usage from OpenAI",
-        native_menu_command_id: 61,
-        default_enabled: false,
-    },
-    ProviderDescriptor {
-        id: ProviderId::Antigravity,
-        key: "antigravity",
-        cache_key: "antigravity",
-        display_name: "Antigravity",
-        settings_description: "Collect usage from Google",
-        native_menu_command_id: 62,
         default_enabled: false,
     },
     ProviderDescriptor {
@@ -67,7 +53,6 @@ pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 6] = [
         cache_key: "opencode",
         display_name: "OpenCode",
         settings_description: "Collect usage from OpenCode Go",
-        native_menu_command_id: 63,
         default_enabled: false,
     },
     ProviderDescriptor {
@@ -76,7 +61,6 @@ pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 6] = [
         cache_key: "cursor",
         display_name: "Cursor",
         settings_description: "Collect usage from Cursor",
-        native_menu_command_id: 64,
         default_enabled: false,
     },
     ProviderDescriptor {
@@ -85,16 +69,14 @@ pub const PROVIDER_DESCRIPTORS: [ProviderDescriptor; 6] = [
         cache_key: "grok",
         display_name: "Grok",
         settings_description: "Collect usage from xAI",
-        native_menu_command_id: 65,
         default_enabled: false,
     },
 ];
 
 impl ProviderId {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 5] = [
         Self::Claude,
         Self::Codex,
-        Self::Antigravity,
         Self::OpenCode,
         Self::Cursor,
         Self::Grok,
@@ -115,13 +97,6 @@ impl ProviderId {
         PROVIDER_DESCRIPTORS
             .iter()
             .find(|descriptor| descriptor.cache_key == key)
-            .map(|descriptor| descriptor.id)
-    }
-
-    pub fn from_native_menu_command_id(command_id: u16) -> Option<Self> {
-        PROVIDER_DESCRIPTORS
-            .iter()
-            .find(|descriptor| descriptor.native_menu_command_id == command_id)
             .map(|descriptor| descriptor.id)
     }
 }
@@ -167,6 +142,7 @@ impl ProviderSet {
 
     /// Toggle a provider while preserving the application invariant that at
     /// least one provider remains enabled.
+    #[cfg(test)]
     pub fn toggle(&mut self, provider: ProviderId) -> bool {
         let enabled = self.contains(provider);
         if enabled && self.len() == 1 {
@@ -237,10 +213,6 @@ mod tests {
             assert_eq!(ProviderId::from_key(descriptor.key), Some(descriptor.id));
             assert_eq!(
                 ProviderId::from_cache_key(descriptor.cache_key),
-                Some(descriptor.id)
-            );
-            assert_eq!(
-                ProviderId::from_native_menu_command_id(descriptor.native_menu_command_id),
                 Some(descriptor.id)
             );
         }

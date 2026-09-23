@@ -1,5 +1,7 @@
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
+#[cfg(test)]
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -33,6 +35,7 @@ impl DiagnoseState {
         Ok(true)
     }
 
+    #[cfg(test)]
     fn disable(&self) {
         let file = self.file.lock();
         self.enabled.store(false, Ordering::Release);
@@ -57,7 +60,19 @@ impl DiagnoseState {
 static DIAGNOSE_STATE: DiagnoseState = DiagnoseState::new();
 
 pub fn log_path() -> PathBuf {
-    std::env::temp_dir().join("claude-code-usage-monitor.log")
+    let directory = crate::app_settings::cache_directory();
+    if std::fs::create_dir_all(&directory).is_ok() {
+        directory.join("diagnose.log")
+    } else {
+        std::env::temp_dir().join("claude-code-usage-monitor.log")
+    }
+}
+
+/// Mirror log lines to stderr, so a daemon under systemd lands in the journal.
+static MIRROR_TO_STDERR: AtomicBool = AtomicBool::new(false);
+
+pub fn mirror_to_stderr(enabled: bool) {
+    MIRROR_TO_STDERR.store(enabled, Ordering::Release);
 }
 
 /// Record panics even when diagnostic recording is disabled.
@@ -91,7 +106,8 @@ pub fn install_panic_hook() {
     }));
 }
 
-/// Only load the tail: long diagnostic sessions must not freeze the dashboard.
+/// Only load the tail of a potentially long diagnostic session.
+#[cfg(test)]
 pub fn read_tail(path: &std::path::Path, max_bytes: u64) -> std::io::Result<String> {
     let mut file = File::open(path)?;
     let length = file.metadata()?.len();
@@ -150,11 +166,6 @@ pub fn is_enabled() -> bool {
     DIAGNOSE_STATE.enabled.load(Ordering::Acquire)
 }
 
-pub fn disable() {
-    log("diagnostic recording disabled");
-    DIAGNOSE_STATE.disable();
-}
-
 pub fn log(message: impl AsRef<str>) {
     if !is_enabled() {
         return;
@@ -171,6 +182,14 @@ pub fn log(message: impl AsRef<str>) {
         message.as_ref()
     );
     DIAGNOSE_STATE.write(line.as_bytes());
+    if MIRROR_TO_STDERR.load(Ordering::Acquire) {
+        eprint!("{}", message_line(&line));
+    }
+}
+
+fn message_line(line: &str) -> &str {
+    // journald timestamps lines itself; drop the "[unix] [pid n] " prefix.
+    line.splitn(3, "] ").nth(2).unwrap_or(line)
 }
 
 pub fn log_error(context: &str, error: impl std::fmt::Display) {

@@ -118,6 +118,10 @@ pub struct CodexCreditsState {
 pub struct AppUsageData {
     providers: BTreeMap<ProviderId, UsageData>,
     pub accounts: Vec<AccountUsage>,
+    /// Latest failure of providers polled without account profiles. Account
+    /// failures live on [`AccountUsage::error`]. Not persisted: every daemon
+    /// start re-polls before reporting.
+    pub errors: BTreeMap<ProviderId, crate::poller::PollError>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -152,6 +156,7 @@ impl AppUsageData {
         })
     }
 
+    #[cfg(test)]
     pub fn new_auth_failures(&self, previous: Option<&Self>, force: bool) -> Vec<&AccountUsage> {
         self.accounts
             .iter()
@@ -246,6 +251,7 @@ impl AppUsageData {
         });
     }
 
+    #[cfg(test)]
     pub fn selected_account_name(&self, provider: ProviderId) -> Option<&str> {
         self.accounts
             .iter()
@@ -254,7 +260,7 @@ impl AppUsageData {
     }
 
     /// A cached reading must not outlive a login change or a different inherited
-    /// config directory. This only stats files; it never starts a CLI or WSL.
+    /// config directory. This only stats files; it never starts a CLI.
     pub fn invalidate_changed_credentials(&mut self) {
         for account in &mut self.accounts {
             let expected = account
@@ -286,6 +292,7 @@ impl FromIterator<(ProviderId, UsageData)> for AppUsageData {
         Self {
             providers: iter.into_iter().collect(),
             accounts: Vec::new(),
+            errors: BTreeMap::new(),
         }
     }
 }
@@ -461,7 +468,6 @@ mod tests {
             decoded.get(ProviderId::Codex).unwrap().session.percentage,
             42.0
         );
-        assert!(decoded.get(ProviderId::Antigravity).is_none());
         assert!(decoded.get(ProviderId::OpenCode).is_none());
     }
 }

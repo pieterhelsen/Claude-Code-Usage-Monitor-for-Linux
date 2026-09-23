@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.claude-code-usage-monitor"
+          path="/org/gnome/shell/extensions/claude-code-usage-monitor/">
+    <key name="panel-provider" type="s">
+      <default>'auto'</default>
+      <summary>Provider shown in the top bar</summary>
+      <description>'auto' picks the first enabled provider with data; otherwise a provider id such as 'claude' or 'codex'.</description>
+    </key>
+    <key name="panel-window" type="s">
+      <choices>
+        <choice value="headline"/>
+        <choice value="five_hour"/>
+        <choice value="weekly"/>
+        <choice value="monthly"/>
+        <choice value="credits"/>
+      </choices>
+      <default>'headline'</default>
+      <summary>Usage window shown in the top bar</summary>
+      <description>'headline' shows whichever window is closest to its limit.</description>
+    </key>
+    <key name="show-icon" type="b">
+      <default>true</default>
+      <summary>Show the icon in the top bar</summary>
+    </key>
+    <key name="show-percent" type="b">
+      <default>true</default>
+      <summary>Show the percentage in the top bar</summary>
+    </key>
+    <key name="show-countdown" type="b">
+      <default>true</default>
+      <summary>Show the time until reset in the top bar</summary>
+    </key>
+    <key name="show-bar" type="b">
+      <default>false</default>
+      <summary>Show a small usage bar in the top bar</summary>
+    </key>
+    <key name="warn-threshold" type="i">
+      <range min="1" max="100"/>
+      <default>70</default>
+      <summary>Usage percentage that turns the label amber</summary>
+    </key>
+    <key name="critical-threshold" type="i">
+      <range min="1" max="100"/>
+      <default>90</default>
+      <summary>Usage percentage that turns the label red</summary>
+    </key>
+    <key name="panel-position" type="s">
+      <choices>
+        <choice value="left"/>
+        <choice value="center"/>
+        <choice value="right"/>
+      </choices>
+      <default>'right'</default>
+      <summary>Top bar area that holds the indicator</summary>
+    </key>
+    <key name="panel-index" type="i">
+      <range min="0" max="20"/>
+      <default>0</default>
+      <summary>Position within the top bar area</summary>
+    </key>
+  </schema>
+</schemalist>

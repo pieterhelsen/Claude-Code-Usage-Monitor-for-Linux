@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install D-Bus
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends dbus
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      # A private session bus lets the D-Bus round-trip test run.
+      - run: dbus-run-session -- cargo test --locked
+
+  extension:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libglib2.0-bin shellcheck zip
+      - run: node --test gnome-extension/test/format.test.mjs
+      - run: glib-compile-schemas --strict --dry-run gnome-extension/schemas
+      - run: shellcheck packaging/install.sh packaging/build-extension-zip.sh tools/extension-sandbox.sh
+      - run: packaging/build-extension-zip.sh dist/gnome-extension.zip

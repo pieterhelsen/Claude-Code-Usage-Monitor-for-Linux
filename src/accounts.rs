@@ -96,6 +96,7 @@ impl ProviderAccounts {
             .or_else(|| self.profiles.iter().find(|profile| profile.enabled))
     }
 
+    #[cfg(test)]
     pub fn add(&mut self) {
         self.normalize();
         let (id, number) = self.allocate_id();
@@ -202,7 +203,7 @@ pub fn expand_path(path: &Path) -> Option<PathBuf> {
     if text == "~" {
         return dirs::home_dir();
     }
-    if let Some(tail) = text.strip_prefix("~/").or_else(|| text.strip_prefix("~\\")) {
+    if let Some(tail) = text.strip_prefix("~/") {
         return Some(dirs::home_dir()?.join(tail));
     }
     if path.is_absolute() {
@@ -265,8 +266,8 @@ mod tests {
         let mut accounts: ProviderAccounts = serde_json::from_str(
             r#"{
             "profiles": [
-                {"id":"Work","name":"First","config_dir":"C:/first"},
-                {"id":"work","name":"Second","config_dir":"C:/second"},
+                {"id":"Work","name":"First","config_dir":"/srv/first"},
+                {"id":"work","name":"Second","config_dir":"/srv/second"},
                 {"id":"account_1","name":"Existing"}
             ], "selected":"work"
         }"#,
@@ -293,8 +294,8 @@ mod tests {
         assert_eq!(environment_directory_value(None), None);
         assert_eq!(environment_directory_value(Some("".into())), None);
         assert_eq!(
-            environment_directory_value(Some("C:\\Users\\Two Words\\.claude-work".into())),
-            Some(PathBuf::from("C:\\Users\\Two Words\\.claude-work"))
+            environment_directory_value(Some("/home/two words/.claude-work".into())),
+            Some(PathBuf::from("/home/two words/.claude-work"))
         );
         assert_eq!(
             environment_directory_value(Some("~/.codex-work".into())),
@@ -306,13 +307,13 @@ mod tests {
     fn explicit_file_overrides_directory_and_invalid_profiles_never_use_default() {
         let profile = AccountProfile {
             id: "work".into(),
-            config_dir: "C:\\work".into(),
-            credentials_path: "C:\\private\\work.json".into(),
+            config_dir: "/work".into(),
+            credentials_path: "/private/work.json".into(),
             ..Default::default()
         };
         assert_eq!(
             profile.credential_path(ProviderId::Claude).unwrap(),
-            Some(PathBuf::from("C:\\private\\work.json"))
+            Some(PathBuf::from("/private/work.json"))
         );
         let empty = AccountProfile {
             id: "work".into(),
