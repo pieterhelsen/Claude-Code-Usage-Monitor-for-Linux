@@ -1,162 +1,86 @@
 # User guide
 
-Start here to customise Claude Code Usage Monitor and adjust its everyday settings.
-For installation and provider sign-in requirements, see the [README](README.md).
-The instructions below use the app's English labels.
+This guide covers everyday settings. For installation, see the [README](README.md).
 
-## Contents
+## Open the settings
 
-- [Open the dashboard](#open-the-dashboard)
-- [Duplicate and customise a built-in theme](#duplicate-and-customise-a-built-in-theme)
-- [Choose providers and refresh usage](#choose-providers-and-refresh-usage)
-- [Show used or remaining allowance](#show-used-or-remaining-allowance)
+Click the indicator in the top bar and choose **Settings**. You can also run:
 
-## Open the dashboard
-
-With the default theme, right-click a provider icon in the Windows system tray
-and choose **Open Dashboard**. If the icon is hidden, look in the tray's overflow
-menu beside the clock.
-
-You can also open the dashboard from PowerShell:
-
-```powershell
-claude-code-usage-monitor --dashboard
+```sh
+gnome-extensions prefs claude-code-usage-monitor@pieterhelsen.github.io
 ```
 
-For a portable download, run `.\claude-code-usage-monitor.exe --dashboard` from
-the folder containing the executable.
+The window has two pages:
 
-## Duplicate and customise a built-in theme
+- **Panel** controls what the top bar shows. These settings belong to the extension.
+- **Providers** controls what the daemon collects. These settings are shared
+  with waybar and every other front end.
 
-Built-in themes are read-only. Create an editable copy to make your own design;
-the original stays available to switch back to.
+## Choose what the top bar shows
 
-### Create your copy
+On the **Panel** page:
 
-1. Open **Theme Studio** from the dashboard's navigation.
-2. In the **Theme** dropdown at the top, select the theme you want to start from,
-   such as **Compact Fluent Quad**. Built-in themes are marked **(built-in)**.
-3. Click the toolbar's copy icon beside the theme dropdown. Hover over it to see
-   the **Duplicate...** tooltip. Use this top toolbar control to copy the whole
-   theme; the **Duplicate** control beneath the layer list copies a layer.
-4. In **Duplicate theme**, enter a name such as `My theme`, then click
-   **Create copy**.
-
-The app saves your copy, selects it in Theme Studio, and makes it the active
-theme. Its controls are now editable.
-
-### Make and save a change
-
-1. Select a layer in the tree on the left. Expand its arrow to find nested layers.
-2. Use the inspector on the right to edit the selected layer. Start with a small
-   change, such as a colour or text size, and check the preview in the centre.
-   **Appearance** contains appearance controls; **Positioning** contains layout
-   controls. The available fields depend on the selected layer.
-3. Click the toolbar's disk icon, with the **Save** tooltip, to save your changes
-   and apply them to the running widget.
-
-**Live apply** is disabled by default. With it disabled, edits update the Studio
-preview until you click **Save**. Enable it to save and apply each edit
-automatically. Enabling it also saves any changes already waiting in the editor.
-
-Use the toolbar's **Undo** and **Redo** icons, or **Ctrl+Z** and **Ctrl+Y**, to
-reverse or restore edits. With Live apply disabled, save again to apply an undo
-to the running widget. If you close the dashboard or switch themes with unsaved
-changes, choose **Save and continue**, **Discard changes**, or **Cancel**.
-
-### Switch back to a built-in theme
-
-Select the original theme from the **Theme** dropdown in Theme Studio. You can
-also choose it under **Settings > Appearance > Active theme**. Switching applies
-the selected theme; your saved custom copy remains available in the dropdown.
-
-Custom theme files are stored in:
-
-```text
-%APPDATA%\ClaudeCodeUsageMonitor\themes
-```
-
-## Choose providers and refresh usage
-
-1. Sign in to the provider you want to monitor using its own app or CLI. See
-   [Provider setup](README.md#provider-setup) for provider-specific requirements.
-2. Open **Settings** and find **Providers**. Enable the providers you want to
-   monitor and disable any you do not use.
-3. Under **Settings > General**, set **Update frequency** to the number of
-   minutes between usage refreshes. This controls usage polling, not checks for
-   new app versions.
-4. Click **Refresh now** beside that setting when you want a fresh reading
-   without waiting for the next scheduled refresh.
-
-These settings save automatically. The default theme adapts to enabled providers;
-a custom theme must include layers for the providers you want to display.
+- **Provider** picks whose usage appears. *Automatic* uses the first enabled
+  provider that has data, in the order Claude Code, Codex, OpenCode, Cursor, Grok.
+- **Usage window** picks which figure appears. *Closest to its limit* shows
+  whichever window is fullest. When paid credits are in use, it shows those.
+  You can also pin the label to the 5-hour, weekly, monthly or credits window.
+- **Icon**, **Percentage**, **Time until reset** and **Usage bar** switch the
+  parts of the label on and off.
+- **Amber from** and **Red from** set the warning colours. They always compare
+  against usage spent, even when the label shows what is left.
+- **Placement** moves the indicator to the left, centre or right of the top bar.
 
 ## Show used or remaining allowance
 
-1. Open **Settings > Display**.
-2. Set **Usage direction** to **Used** or **Remaining**.
+On the **Providers** page, **Show what is left** switches every front end between
+usage spent (`42%`) and allowance remaining (`58%`). A fresh limit then reads 100%
+and drains as you work.
 
-| Option | What the percentage means | Example |
-| --- | --- | --- |
-| **Used** (default) | How much of the allowance you have consumed. | After using 30%, the display reads 30%. |
-| **Remaining** | How much allowance is left. | After using 30%, the display reads 70%. |
+## Choose providers and refresh
 
-The setting saves automatically. The default theme and Compact Fluent Quad
-support both directions. Custom themes need to support this setting too; a
-theme that always displays consumed usage may stay unchanged. See the
-[theme binding notes](README.md#usage) if you are editing usage expressions.
+On the **Providers** page, switch providers on or off. The subtitle under each
+provider shows the latest error, if there is one. At least one provider always
+stays enabled.
 
-## Claude extra limits in custom themes
+**Refresh every** sets how often the daemon polls. The daemon also polls right
+after a usage window resets and within 30 seconds of a login file changing.
+**Refresh now** polls immediately; so does **Refresh now** in the top-bar menu.
 
-Claude may report extra quotas in its usage API, including model-specific caps.
-These are available to custom themes. Built-in themes and the existing session,
-weekly, and headline bindings retain their current behaviour.
+## Several Claude Code or Codex accounts
 
-After refreshing Claude usage, open the text editor's **Provider values** list or
-the expression editor's **Variables** panel and look under **Claude Code**.
-The text editor lists each reported quota with its summary, label, usage,
-remaining allowance, and reset formats. Select a value and format, then click
-**Insert value**. The expression editor also lists the exact binding keys. API quotas vary by account and may disappear or change over time.
+The daemon can watch several logins at once, for example a work and a personal
+account. Add them to the settings file, `~/.config/claude-code-usage-monitor/settings.json`:
 
-| Binding | Meaning |
-| --- | --- |
-| `claude.limits.count` | Number of parsed quotas, including standard windows when supplied in `limits[]`. |
-| `claude.limits.weekly_scoped_fable.*` | A specific quota from `limits[]`, using its kind and model name. |
-| `claude.model.fable.*` | Shortcut for a model's weekly quota, when unambiguous. |
-| `claude.scoped.*` | The single scoped quota marked `is_active` by the API. Unavailable if none or multiple are active. |
-| `claude.limits.seven_day_cowork.*` | An older optional top-level quota bucket, when reported. |
-
-The examples are illustrative; only quotas actually returned by the API have
-`available = 1`. No quota is inferred from a model name or subscription plan.
-Model names become lowercase keys with punctuation replaced by underscores:
-`Future Model 2` becomes `future_model_2`. Non-model scopes and colliding names
-have a stable hash suffix; use the exact key shown in the Variables panel.
-The array takes precedence over legacy Opus/Sonnet buckets for the same model.
-If multiple weekly quotas share a model key, use the full `limits` keys instead
-of the ambiguous model shortcut.
-
-Each quota exposes:
-
-- `available`, `percentage` (used), `remaining`, and `display` (follows Usage direction).
-- `is_active`, as supplied by the API; it is not inferred from the highest percentage.
-- `reset.unix`, `reset.seconds`, `reset.minutes`, `reset.hours`, and `reset.days`.
-- Text fields `label`, `kind`, `key`, `model_id`, and `scope` (the scope JSON, or empty).
-
-For a custom Fable bar, use `claude.model.fable.available` as the layer's
-**Render** expression and `claude.model.fable.display` as its progress value.
-A text layer can use:
-
-```text
-{claude.model.fable.label} {claude.model.fable.display:usage_line}
+```json
+{
+  "accounts": {
+    "claude": {
+      "profiles": [
+        {"id": "default", "name": "Personal", "enabled": true},
+        {"id": "account_1", "name": "Work", "config_dir": "~/.claude-work", "enabled": true}
+      ],
+      "selected": "default"
+    }
+  }
+}
 ```
 
-Omit `.display` to always show used usage. The `usage_badge` format is also
-supported. For a specific account, replace `claude` with its account binding,
-for example `accounts.claude.work.model.fable.percentage`. Each account keeps its
-own quotas; changing the default account updates the plain `claude.*` bindings.
+- `config_dir` points to that login's `CLAUDE_CONFIG_DIR` (or `CODEX_HOME` for Codex).
+- `credentials_path` can point at a credentials file directly instead.
+- `selected` picks which account drives the top bar. The others appear under
+  **Other accounts** in the menu.
 
-Missing quotas have `available = 0`, zero used usage/reset values, and empty
-metadata. Always gate optional layers on `available` so a missing quota is not
-presented as an unused allowance. These bindings validate even before login.
-Cached limits follow the existing stale-data behaviour; check `claude.stale`
-(or the account's `.stale`) when freshness matters.
+After editing the file, restart the daemon with `claude-code-usage-monitor --quit`;
+D-Bus starts it again on next use.
+
+## Files
+
+| Path | Contents |
+| --- | --- |
+| `~/.config/claude-code-usage-monitor/settings.json` | Daemon settings |
+| `~/.cache/claude-code-usage-monitor/usage-cache.json` | Last usage reading, shown until the next poll |
+| `~/.cache/claude-code-usage-monitor/diagnose.log` | Diagnostic log, when enabled |
+
+Set `CLAUDE_CODE_USAGE_MONITOR_CONFIG_DIR` to keep all of these under one other
+directory, for example to try a build without touching your real settings.

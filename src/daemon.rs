@@ -82,6 +82,9 @@ pub fn run() -> i32 {
     };
     poll_loop(&state, &receiver, publish);
     diagnose::log("daemon exiting");
+    // Give the executor a moment to deliver the reply to a pending Quit call.
+    std::thread::sleep(Duration::from_millis(200));
+    drop(connection);
     0
 }
 
