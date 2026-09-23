@@ -138,7 +138,7 @@ fn directory_override() -> Option<PathBuf> {
 pub fn config_directory() -> PathBuf {
     directory_override()
         .or_else(|| dirs::config_dir().map(|dir| dir.join(APP_DIRECTORY_NAME)))
-        .unwrap_or_else(|| std::env::temp_dir().join(APP_DIRECTORY_NAME))
+        .unwrap_or_else(|| fallback_directory().join("config"))
 }
 
 #[cfg(not(test))]
@@ -146,7 +146,18 @@ pub fn cache_directory() -> PathBuf {
     directory_override()
         .map(|dir| dir.join("cache"))
         .or_else(|| dirs::cache_dir().map(|dir| dir.join(APP_DIRECTORY_NAME)))
-        .unwrap_or_else(|| std::env::temp_dir().join(APP_DIRECTORY_NAME).join("cache"))
+        .unwrap_or_else(|| fallback_directory().join("cache"))
+}
+
+/// Used only when neither XDG nor HOME resolves. Prefer the per-user runtime
+/// directory; never share a fixed name in /tmp with other users.
+#[cfg(not(test))]
+fn fallback_directory() -> PathBuf {
+    dirs::runtime_dir()
+        .map(|dir| dir.join(APP_DIRECTORY_NAME))
+        .unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("{APP_DIRECTORY_NAME}-{}", current_uid()))
+        })
 }
 
 /// Test threads get independent settings and caches, so parallel tests never
@@ -266,26 +277,70 @@ fn read_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     serde_json::from_str(&content).ok()
 }
 
-/// Write to a sibling temporary file, flush it, then rename it into place so
-/// readers only ever see a complete file.
+pub fn current_uid() -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid())
+}
+
+/// Create `path` (and parents) and make sure the last component is a real
+/// directory owned by this user and closed to others. Refuses symlinks and
+/// directories planted by someone else.
+pub fn create_private_dir(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    match std::fs::DirBuilder::new().mode(0o700).create(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.to_string()),
+    }
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !metadata.is_dir() || metadata.uid() != current_uid() {
+        return Err(format!(
+            "{} is not a directory owned by this user",
+            path.display()
+        ));
+    }
+    if metadata.permissions().mode() & 0o077 != 0 {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Write to a new, exclusively created sibling file, flush it, then rename it
+/// into place so readers only ever see a complete file.
 pub fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().ok_or("Invalid settings path")?;
-    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    create_private_dir(parent)?;
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("state.json");
-    let temporary = parent.join(format!(".{file_name}.{}.tmp", std::process::id()));
     let json = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    {
-        use std::io::Write;
-        let mut file = std::fs::File::create(&temporary).map_err(|error| error.to_string())?;
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = parent.join(format!(".{file_name}.{}.{nanos}.tmp", std::process::id()));
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temporary)
+            .map_err(|error| error.to_string())?;
         file.write_all(&json).map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
-    }
-    if let Err(error) = std::fs::rename(&temporary, path) {
+        std::fs::rename(&temporary, path)
+            .map_err(|error| format!("Unable to replace {}: {error}", path.display()))
+    })();
+    if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
-        return Err(format!("Unable to replace {}: {error}", path.display()));
+        return result;
     }
     if let Ok(directory) = std::fs::File::open(parent) {
         let _ = directory.sync_all();
@@ -332,6 +387,23 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, vec!["settings.json".to_string()]);
+    }
+
+    #[test]
+    fn private_directories_refuse_symlinks_and_close_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = test_root();
+        let open = root.join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        create_private_dir(&open).unwrap();
+        let mode = std::fs::metadata(&open).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        let link = root.join("link");
+        std::os::unix::fs::symlink(&open, &link).unwrap();
+        assert!(create_private_dir(&link).is_err());
+        assert!(write_json_atomic(&link.join("x.json"), &1).is_err());
     }
 
     #[test]

@@ -120,9 +120,7 @@ class UsageIndicator extends PanelMenu.Button {
      */
     update(snapshot, daemonError, prefs) {
         const now = nowUnix();
-        const label = daemonError && !snapshot
-            ? {text: '—', state: 'error', fraction: null}
-            : Format.panelLabel(snapshot, prefs, now);
+        const label = Format.panelLabel(snapshot, prefs, now, daemonError);
 
         this._icon.visible = prefs.showIcon || (!prefs.showPercent && !prefs.showCountdown);
         this._label.text = label.text;
@@ -299,6 +297,8 @@ export default class UsageMonitorExtension extends Extension {
             this._ownerId = proxy.connect('notify::g-name-owner', () => {
                 if (proxy.g_name_owner)
                     this._fetch();
+                else
+                    this._setDaemonError(new Error('The usage daemon stopped. Choose Retry to start it again.'));
             });
             this._fetch();
         }, cancellable);

@@ -5,5 +5,5 @@
   "shell-version": ["46", "47", "48", "49", "50"],
   "settings-schema": "org.gnome.shell.extensions.claude-code-usage-monitor",
   "url": "https://github.com/pieterhelsen/Claude-Code-Usage-Monitor-for-Linux",
-  "version-name": "3.0.0"
+  "version-name": "1.0.0"
 }

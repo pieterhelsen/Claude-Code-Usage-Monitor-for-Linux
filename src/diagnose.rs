@@ -61,11 +61,16 @@ static DIAGNOSE_STATE: DiagnoseState = DiagnoseState::new();
 
 pub fn log_path() -> PathBuf {
     let directory = crate::app_settings::cache_directory();
-    if std::fs::create_dir_all(&directory).is_ok() {
-        directory.join("diagnose.log")
-    } else {
-        std::env::temp_dir().join("claude-code-usage-monitor.log")
+    if crate::app_settings::create_private_dir(&directory).is_ok() {
+        return directory.join("diagnose.log");
     }
+    // Never a fixed, shared name in /tmp: another user could plant a symlink.
+    let fallback = std::env::temp_dir().join(format!(
+        "claude-code-usage-monitor-{}",
+        crate::app_settings::current_uid()
+    ));
+    let _ = crate::app_settings::create_private_dir(&fallback);
+    fallback.join("diagnose.log")
 }
 
 /// Mirror log lines to stderr, so a daemon under systemd lands in the journal.

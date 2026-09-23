@@ -116,10 +116,18 @@ export function level(used, warn, critical) {
  * @param {object|null} snapshot usage snapshot, or null before the first reply
  * @param {object} prefs {provider, window, showPercent, showCountdown, warn, critical}
  * @param {number} now unix seconds
+ * @param {string|null} [daemonError] set when the daemon cannot be reached
  * @returns {{text: string, state: string, fraction: number|null}}
  *   state is one of loading, ok, warn, critical, stale, error
  */
-export function panelLabel(snapshot, prefs, now) {
+export function panelLabel(snapshot, prefs, now, daemonError = null) {
+    if (daemonError) {
+        if (!snapshot)
+            return {text: '—', state: 'error', fraction: null};
+        // Keep the last reading visible, but never let it pass for current.
+        const last = panelLabel(snapshot, prefs, now);
+        return {...last, state: last.state === 'loading' ? 'error' : 'stale'};
+    }
     if (!snapshot)
         return {text: '…', state: 'loading', fraction: null};
     const provider = pickProvider(snapshot, prefs.provider);

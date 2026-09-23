@@ -212,15 +212,36 @@ pub fn poll_once(
                 .iter()
                 .any(|(p, current)| p == provider && *current)
     });
-    (usage, ok)
+    // A poll only counts as successful when something came back fresh; a
+    // cycle where every account failed is not a success.
+    let fresh = readings
+        .iter()
+        .any(|(provider, current)| *current && enabled.contains(*provider))
+        || usage
+            .accounts
+            .iter()
+            .any(|account| account.usage.as_ref().is_some_and(|usage| !usage.stale));
+    (usage, ok && fresh)
 }
 
+/// Signatures of every login file the enabled providers can read, including
+/// each configured Claude Code and Codex account profile, so a fresh login
+/// anywhere is picked up within [`CREDENTIAL_WATCH_INTERVAL`].
 fn credential_snapshots(settings: &SettingsFile) -> Vec<CredentialWatchSnapshot> {
     settings
         .enabled_providers()
         .iter()
         .map(|provider| {
-            poller::credential_watch_snapshot(CredentialWatchMode::AllSources(provider))
+            let mut snapshot =
+                poller::credential_watch_snapshot(CredentialWatchMode::AllSources(provider));
+            if let Some(accounts) = settings.accounts.get(provider) {
+                for profile in accounts.profiles.iter().filter(|profile| profile.enabled) {
+                    if let Ok(Some(path)) = profile.credential_path(provider) {
+                        snapshot.push(poller::account_source_signature(provider, &path));
+                    }
+                }
+            }
+            snapshot
         })
         .collect()
 }
@@ -254,6 +275,20 @@ fn lock(state: &Mutex<State>) -> std::sync::MutexGuard<'_, State> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn account_profile_logins_are_watched() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("work.json");
+        let mut settings = SettingsFile::default();
+        settings.accounts.claude.add();
+        let profile = &mut settings.accounts.claude.profiles[1];
+        profile.enabled = true;
+        profile.credentials_path = path.to_string_lossy().into_owned();
+        let before = credential_snapshots(&settings);
+        std::fs::write(&path, "{}").unwrap();
+        assert_ne!(credential_snapshots(&settings), before);
+    }
     use crate::models::{UsageData, UsageSection};
     use std::time::UNIX_EPOCH;
 

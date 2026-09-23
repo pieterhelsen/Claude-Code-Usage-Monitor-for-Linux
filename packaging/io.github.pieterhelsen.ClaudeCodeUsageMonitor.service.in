@@ -1,4 +1,4 @@
 [D-BUS Service]
 Name=io.github.pieterhelsen.ClaudeCodeUsageMonitor
-Exec=@BINDIR@/claude-code-usage-monitor --daemon
+Exec="@BINDIR@/claude-code-usage-monitor" --daemon
 SystemdService=claude-code-usage-monitor.service

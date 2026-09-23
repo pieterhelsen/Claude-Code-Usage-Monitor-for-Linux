@@ -454,7 +454,23 @@ fn cli_refresh_in(directory: &Path) {
         "attempting Claude token refresh via {}",
         claude.display()
     ));
-    let mut command = super::cli::command(&claude, &["-p", "."]);
+    // Any prompt renews the OAuth login. Keep it cheap and inert: no tools,
+    // no settings files (so no hooks), no MCP servers, nothing saved.
+    let mut command = super::cli::command(
+        &claude,
+        &[
+            "-p",
+            ".",
+            "--model",
+            "claude-haiku-4-5",
+            "--tools",
+            "",
+            "--setting-sources",
+            "",
+            "--strict-mcp-config",
+            "--no-session-persistence",
+        ],
+    );
     command.env("CLAUDE_CONFIG_DIR", directory);
     match command.spawn() {
         Ok(mut child) => {

@@ -350,7 +350,21 @@ fn cli_refresh_codex_token(directory: &Path) {
         "attempting Codex token refresh via {}",
         codex.display()
     ));
-    let mut command = super::cli::command(&codex, &["exec", "."]);
+    // Any prompt renews the login. Keep it read-only and unsaved, with the
+    // lowest reasoning effort.
+    let mut command = super::cli::command(
+        &codex,
+        &[
+            "exec",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "-c",
+            "model_reasoning_effort=\"low\"",
+            ".",
+        ],
+    );
     command.env("CODEX_HOME", directory);
     match command.spawn() {
         Ok(mut child) => {
