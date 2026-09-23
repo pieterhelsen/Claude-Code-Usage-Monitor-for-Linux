@@ -29,18 +29,19 @@ function nowUnix() {
 
 /** A small horizontal gauge: a track with a fill whose width follows `fraction`. */
 const Gauge = GObject.registerClass(
-class Gauge extends St.Widget {
+class Gauge extends St.BoxLayout {
     _init(width, styleClass) {
+        // A horizontal box packs the fill from the left edge of the track.
+        // (A BinLayout would centre it.)
         super._init({
             style_class: `ccum-gauge ${styleClass}`,
             y_align: Clutter.ActorAlign.CENTER,
-            layout_manager: new Clutter.BinLayout(),
         });
         this._width = width;
         this.set_style(`width: ${width}px;`);
         this._fill = new St.Widget({
             style_class: 'ccum-gauge-fill',
-            x_align: Clutter.ActorAlign.START,
+            x_expand: false,
             y_expand: true,
             y_align: Clutter.ActorAlign.FILL,
         });
@@ -120,9 +121,7 @@ class UsageIndicator extends PanelMenu.Button {
      */
     update(snapshot, daemonError, prefs) {
         const now = nowUnix();
-        const label = daemonError && !snapshot
-            ? {text: '—', state: 'error', fraction: null}
-            : Format.panelLabel(snapshot, prefs, now);
+        const label = Format.panelLabel(snapshot, prefs, now, daemonError);
 
         this._icon.visible = prefs.showIcon || (!prefs.showPercent && !prefs.showCountdown);
         this._label.text = label.text;
@@ -299,6 +298,8 @@ export default class UsageMonitorExtension extends Extension {
             this._ownerId = proxy.connect('notify::g-name-owner', () => {
                 if (proxy.g_name_owner)
                     this._fetch();
+                else
+                    this._setDaemonError(new Error('The usage daemon stopped. Choose Retry to start it again.'));
             });
             this._fetch();
         }, cancellable);

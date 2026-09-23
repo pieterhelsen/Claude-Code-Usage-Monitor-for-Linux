@@ -100,11 +100,16 @@ fn poll_dashboard(credentials: &DashboardCredentials) -> Result<UsageData, PollE
         ));
     })?;
 
-    if usage.rolling.is_none() && usage.weekly.is_none() && usage.monthly.is_none() {
+    usage_from_dashboard(usage).inspect_err(|_| {
         diagnose::log(format!(
             "OpenCode dashboard returned no usage windows from {}",
             credentials.source
         ));
+    })
+}
+
+fn usage_from_dashboard(usage: DashboardUsage) -> Result<UsageData, PollError> {
+    if usage.rolling.is_none() && usage.weekly.is_none() && usage.monthly.is_none() {
         return Err(PollError::RequestFailed);
     }
 
@@ -113,31 +118,23 @@ fn poll_dashboard(credentials: &DashboardCredentials) -> Result<UsageData, PollE
         .as_ref()
         .map(section_from_window)
         .unwrap_or_default();
-    let (weekly, weekly_label) = select_long_window(&usage);
+    let weekly = usage
+        .weekly
+        .as_ref()
+        .map(section_from_window)
+        .unwrap_or_default();
 
     Ok(UsageData {
         limits: Vec::new(),
         session,
         weekly,
-        weekly_label,
-        // The monthly window is kept available to themes alongside the
-        // auto-selected `weekly` slot (which prefers the more constrained
-        // of the two windows, as before).
+        weekly_label: None,
+        // Each window keeps its own slot; the snapshot's headline already
+        // picks whichever is closest to its limit.
         monthly: usage.monthly.as_ref().map(section_from_window),
         credits: None,
         stale: false,
     })
-}
-
-fn select_long_window(usage: &DashboardUsage) -> (UsageSection, Option<String>) {
-    match (&usage.weekly, &usage.monthly) {
-        (Some(weekly), Some(monthly)) if monthly.usage_percent > weekly.usage_percent => {
-            (section_from_window(monthly), Some("30d".to_string()))
-        }
-        (Some(weekly), _) => (section_from_window(weekly), Some("7d".to_string())),
-        (None, Some(monthly)) => (section_from_window(monthly), Some("30d".to_string())),
-        (None, None) => (UsageSection::default(), None),
-    }
 }
 
 fn section_from_window(window: &UsageWindow) -> UsageSection {
@@ -394,10 +391,14 @@ mod tests {
             weekly.resets_at,
             parse_iso8601(Some("2026-09-21T00:00:00Z"))
         );
-        let (long, label) = select_long_window(&usage);
-        assert_eq!(long.percentage, 60.0);
-        assert_eq!(label.as_deref(), Some("30d"));
-        assert_eq!(long.resets_at, parse_iso8601(Some("2026-10-01T00:00:00Z")));
+        let data = usage_from_dashboard(usage).unwrap();
+        assert_eq!(data.weekly.percentage, 45.0);
+        let monthly = data.monthly.unwrap();
+        assert_eq!(monthly.percentage, 60.0);
+        assert_eq!(
+            monthly.resets_at,
+            parse_iso8601(Some("2026-10-01T00:00:00Z"))
+        );
     }
 
     #[test]
@@ -568,21 +569,22 @@ mod tests {
     }
 
     #[test]
-    fn most_constrained_long_window_is_selected() {
+    fn weekly_and_monthly_windows_keep_their_own_slots() {
         let usage = DashboardUsage {
             weekly: Some(UsageWindow {
-                usage_percent: 40.0,
+                usage_percent: 20.0,
                 resets_at: Some(UNIX_EPOCH),
             }),
             monthly: Some(UsageWindow {
-                usage_percent: 70.0,
+                usage_percent: 80.0,
                 resets_at: Some(UNIX_EPOCH),
             }),
             ..Default::default()
         };
-        let (section, label) = select_long_window(&usage);
-        assert_eq!(section.percentage, 70.0);
-        assert_eq!(label.as_deref(), Some("30d"));
+        let data = usage_from_dashboard(usage).unwrap();
+        assert_eq!(data.weekly.percentage, 20.0);
+        assert_eq!(data.weekly_label, None);
+        assert_eq!(data.monthly.unwrap().percentage, 80.0);
     }
 
     #[test]
@@ -594,14 +596,13 @@ mod tests {
         let section = section_from_window(&window);
         assert!(section.available);
         assert_eq!(section.percentage, 0.0);
-        let usage = DashboardUsage {
+        let data = usage_from_dashboard(DashboardUsage {
             monthly: Some(window),
             ..Default::default()
-        };
-        let (section, label) = select_long_window(&usage);
-        assert!(section.available);
-        assert_eq!(label.as_deref(), Some("30d"));
-        assert!(!select_long_window(&DashboardUsage::default()).0.available);
+        })
+        .unwrap();
+        assert!(!data.weekly.available);
+        assert!(data.monthly.unwrap().available);
     }
 
     #[test]

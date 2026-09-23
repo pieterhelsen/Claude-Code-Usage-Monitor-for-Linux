@@ -425,8 +425,9 @@ pub fn waybar(snapshot: &Snapshot, now: u64) -> WaybarOutput {
         text,
         tooltip: tooltip(snapshot, now),
         class,
+        // Matches the text: remaining when counting down, used otherwise.
         percentage: headline
-            .map(|headline| headline.used_percent.round() as u8)
+            .map(|headline| shown(headline.used_percent).round() as u8)
             .unwrap_or(0),
     }
 }
@@ -676,7 +677,11 @@ mod tests {
         let mut countdown = settings.clone();
         countdown.usage_countdown = true;
         let snapshot = Snapshot::build(&countdown, &data, Runtime::default());
-        assert_eq!(waybar(&snapshot, 1_000_000).text, "58% · 3h");
+        let remaining = waybar(&snapshot, 1_000_000);
+        assert_eq!(remaining.text, "58% · 3h");
+        assert_eq!(remaining.percentage, 58);
+        // Thresholds still follow usage spent.
+        assert_eq!(remaining.class, "ok");
 
         let hot = AppUsageData::from_iter([(
             ProviderId::Claude,

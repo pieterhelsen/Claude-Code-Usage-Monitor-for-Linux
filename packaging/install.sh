@@ -11,6 +11,7 @@
 #   --purge            with --uninstall, also delete settings and caches
 #
 # Everything goes into your home directory; no root access is needed.
+# Set CCUM_DOWNLOAD_BASE to download the release assets from a mirror instead.
 set -eu
 
 REPO_SLUG="pieterhelsen/Claude-Code-Usage-Monitor-for-Linux"
@@ -140,7 +141,10 @@ fetch_release() {
     work="$1"
     arch=$(detect_arch)
     asset="$BIN_NAME-linux-$arch.tar.gz"
-    if [ "$VERSION" = latest ]; then
+    if [ -n "${CCUM_DOWNLOAD_BASE:-}" ]; then
+        # A mirror, or a local directory (file://...) when testing a release.
+        base="${CCUM_DOWNLOAD_BASE%/}"
+    elif [ "$VERSION" = latest ]; then
         base="https://github.com/$REPO_SLUG/releases/latest/download"
     else
         base="https://github.com/$REPO_SLUG/releases/download/$VERSION"
@@ -174,14 +178,26 @@ build_from_source() {
     echo "$stage"
 }
 
+# Escape a path for use inside double quotes in D-Bus and systemd files.
+quoted_path() {
+    printf '%s' "$1" | sed 's/[\\"]/\\&/g'
+}
+
+# Substitute @BINDIR@ without letting the path's characters act as sed syntax.
+render_template() {
+    replacement=$(printf '%s' "$2" | sed 's/[\\&|]/\\&/g')
+    sed "s|@BINDIR@|$replacement|g" "$1"
+}
+
 install_files() {
     stage="$1"
     step "Installing the daemon to $BINDIR"
     stop_daemon
     mkdir -p "$BINDIR" "$(dirname "$DBUS_SERVICE")" "$(dirname "$SYSTEMD_UNIT")"
     install -m 755 "$stage/$BIN_NAME" "$BINDIR/$BIN_NAME"
-    sed "s|@BINDIR@|$BINDIR|g" "$stage/$BUS_NAME.service.in" > "$DBUS_SERVICE"
-    sed "s|@BINDIR@|$BINDIR|g" "$stage/$UNIT.in" > "$SYSTEMD_UNIT"
+    render_template "$stage/$BUS_NAME.service.in" "$(quoted_path "$BINDIR")" > "$DBUS_SERVICE"
+    # systemd also expands % specifiers, so a literal % must be doubled.
+    render_template "$stage/$UNIT.in" "$(quoted_path "$BINDIR" | sed 's/%/%%/g')" > "$SYSTEMD_UNIT"
     reload_session_services
     if have systemctl; then
         systemctl --user enable "$UNIT" >/dev/null 2>&1 || true
@@ -250,4 +266,4 @@ esac
 
 say ""
 say "Done. Try: $BIN_NAME --waybar"
-say "Uninstall with: sh install.sh --uninstall"
+say "Uninstall with: curl -fsSL https://raw.githubusercontent.com/$REPO_SLUG/main/packaging/install.sh | sh -s -- --uninstall"

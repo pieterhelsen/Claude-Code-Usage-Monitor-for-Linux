@@ -48,9 +48,14 @@ fn is_executable(path: &Path) -> bool {
 }
 
 /// A detached, silent invocation that cannot be mistaken for a nested
-/// Claude Code session.
+/// Claude Code session. It runs in an empty private directory, so an agent
+/// CLI started only to renew its login never sees a project or the home
+/// directory as its workspace.
 pub fn command(path: &Path, args: &[&str]) -> Command {
     let mut command = Command::new(path);
+    if let Some(directory) = scratch_directory() {
+        command.current_dir(directory);
+    }
     command
         .args(args)
         .env_remove("CLAUDECODE")
@@ -59,6 +64,14 @@ pub fn command(path: &Path, args: &[&str]) -> Command {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     command
+}
+
+/// `~/.cache/claude-code-usage-monitor/cli`, emptied before each use.
+pub fn scratch_directory() -> Option<PathBuf> {
+    let directory = crate::app_settings::cache_directory().join("cli");
+    let _ = std::fs::remove_dir_all(&directory);
+    crate::app_settings::create_private_dir(&directory).ok()?;
+    Some(directory)
 }
 
 /// Run to completion and capture output, killing the process on timeout.

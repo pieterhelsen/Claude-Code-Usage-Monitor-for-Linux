@@ -126,13 +126,43 @@ export default class UsageMonitorPreferences extends ExtensionPreferences {
         const toast = message => window.add_toast(new Adw.Toast({title: message, timeout: 4}));
         let proxy = null;
         let daemonSettings = null;
+        const providerRows = new Map();
+        let countdownRow = null;
+        let syncing = false;
+
+        // The daemon may adjust what it is given (for example it keeps at
+        // least one provider on), so show what it actually stored.
+        const reflect = () => {
+            syncing = true;
+            for (const [key, row] of providerRows)
+                row.active = Boolean(daemonSettings[key]);
+            if (countdownRow)
+                countdownRow.active = Boolean(daemonSettings.usage_countdown);
+            syncing = false;
+        };
 
         const save = () => {
-            proxy.SetSettingsAsync(JSON.stringify(daemonSettings))
+            if (syncing)
+                return;
+            const requested = JSON.stringify(daemonSettings);
+            proxy.SetSettingsAsync(requested)
                 .then(([normalized]) => {
                     daemonSettings = JSON.parse(normalized);
+                    const kept = Object.values(PROVIDER_SETTING_KEYS)
+                        .filter(key => daemonSettings[key]);
+                    if (kept.length === 1 && !JSON.parse(requested)[kept[0]])
+                        toast('At least one provider stays enabled');
+                    reflect();
                 })
-                .catch(error => toast(`Could not save: ${error.message}`));
+                .catch(error => {
+                    toast(`Could not save: ${error.message}`);
+                    proxy.GetSettingsAsync()
+                        .then(([json]) => {
+                            daemonSettings = JSON.parse(json);
+                            reflect();
+                        })
+                        .catch(() => {});
+                });
         };
 
         const populate = snapshot => {
@@ -146,9 +176,12 @@ export default class UsageMonitorPreferences extends ExtensionPreferences {
                     active: Boolean(daemonSettings[key] ?? provider.enabled),
                 });
                 row.connect('notify::active', () => {
+                    if (syncing)
+                        return;
                     daemonSettings[key] = row.active;
                     save();
                 });
+                providerRows.set(key, row);
                 providers.add(row);
             }
 
@@ -173,9 +206,12 @@ export default class UsageMonitorPreferences extends ExtensionPreferences {
                 active: Boolean(daemonSettings.usage_countdown),
             });
             countdown.connect('notify::active', () => {
+                if (syncing)
+                    return;
                 daemonSettings.usage_countdown = countdown.active;
                 save();
             });
+            countdownRow = countdown;
             polling.add(countdown);
 
             const refresh = new Gtk.Button({label: 'Refresh now', valign: Gtk.Align.CENTER});

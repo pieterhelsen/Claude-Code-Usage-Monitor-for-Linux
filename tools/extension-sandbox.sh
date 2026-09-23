@@ -109,8 +109,12 @@ gnome-extensions prefs "$UUID"
 sleep 4
 SHOT 0 0 1280 720 false "$CCUM_OUT/prefs.png"
 
+if [ "$NO_DAEMON" != 1 ]; then
+    "$DAEMON" --quit > /dev/null 2>&1
+    sleep 2
+    echo "after daemon stop: $(EVAL "$INDICATOR._label.text + '  [' + $INDICATOR._label.get_style_class_name() + ']'")"
+fi
 kill $SHELL_PID 2> /dev/null
-[ "$NO_DAEMON" = 1 ] || "$DAEMON" --quit > /dev/null 2>&1
 sleep 1
 if grep -qE "JS ERROR|Unhandled promise rejection" "$CCUM_OUT/shell.log"; then
     echo "JavaScript errors (see $CCUM_OUT/shell.log):" >&2

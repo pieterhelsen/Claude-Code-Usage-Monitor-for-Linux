@@ -81,6 +81,15 @@ test('loading, error and stale states', () => {
     assert.equal(panelLabel(stale, PREFS, NOW).state, 'stale');
 });
 
+test('an unreachable daemon dims the last reading or shows a dash', () => {
+    assert.deepEqual(panelLabel(null, PREFS, NOW, 'gone'), {text: '—', state: 'error', fraction: null});
+    const hot = snapshot();
+    hot.providers[0].usage.headline.used_percent = 95;
+    const label = panelLabel(hot, PREFS, NOW, 'gone');
+    assert.equal(label.text, '95% · 3h');
+    assert.equal(label.state, 'stale');
+});
+
 test('menu rows describe usage and reset time', () => {
     const [fiveHour] = snapshot().providers[0].usage.windows;
     assert.deepEqual(windowRow(fiveHour, false, NOW, 70, 90), {
