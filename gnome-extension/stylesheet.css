@@ -1,0 +1,83 @@
+.ccum-panel-box {
+    spacing: 4px;
+}
+
+.ccum-panel-label {
+    font-feature-settings: "tnum";
+}
+
+.ccum-panel-label.ccum-warn,
+.ccum-window-figure.ccum-warn {
+    color: #f5c211;
+}
+
+.ccum-panel-label.ccum-critical,
+.ccum-window-figure.ccum-critical,
+.ccum-error {
+    color: #ff7b63;
+}
+
+.ccum-panel-label.ccum-stale,
+.ccum-panel-label.ccum-loading {
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.ccum-gauge {
+    background-color: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+}
+
+.ccum-panel-gauge {
+    height: 6px;
+}
+
+.ccum-menu-gauge {
+    height: 6px;
+    margin: 0 8px;
+}
+
+.ccum-gauge-fill {
+    background-color: #d97757;
+    border-radius: 3px;
+}
+
+.ccum-gauge-fill.ccum-warn {
+    background-color: #f5c211;
+}
+
+.ccum-gauge-fill.ccum-critical {
+    background-color: #e01b24;
+}
+
+.ccum-gauge-fill.ccum-stale {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.ccum-window-item {
+    spacing: 0;
+}
+
+.ccum-window-label {
+    min-width: 48px;
+    font-weight: bold;
+}
+
+.ccum-window-figure {
+    min-width: 80px;
+    font-feature-settings: "tnum";
+}
+
+.ccum-window-detail {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9em;
+    padding-left: 12px;
+}
+
+.ccum-menu-detail {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.9em;
+}
+
+.ccum-menu-heading {
+    font-weight: bold;
+}
